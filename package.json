@@ -1,0 +1,11 @@
+{
+  "name": "rabbitmq-node-microservice",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "concurrently --prefix-colors \"cyan,green,yellow,magenta,blue\" -n \"gateway,order,inventory,notification,dlx\" \"npm --prefix gateway start\" \"npm --prefix order-service start\" \"npm --prefix inventory-service start\" \"npm --prefix notification-service start\" \"npm --prefix dead-letter-service start\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
