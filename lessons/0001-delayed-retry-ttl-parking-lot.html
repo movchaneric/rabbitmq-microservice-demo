@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lesson 1 — Delayed Retry with a TTL Parking Lot</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>Lesson 1: Delayed Retry with a TTL Parking Lot</h1>
+<p class="subtitle">Tied to mission: close the "instant retry" gap in <code>dead-letter-service</code></p>
+
+<h2>Where you are</h2>
+<p>
+<code>dead-letter-service</code> already reads the <code>x-death</code> header and
+republishes a failed order back to <code>ex.orders</code> up to <code>MAX_RETRIES</code>
+times before giving up — that's a real bounded-retry mechanism, and you built it
+yourself (commit <code>10ebec9</code>). The gap: every retry republishes
+<strong>instantly</strong>. If inventory-service is failing because it's overloaded,
+retrying with zero delay just adds to the pile.
+</p>
+
+<h2>The pattern: parking lot</h2>
+<p>
+Instead of your consumer code republishing immediately, you hand the message to a
+<strong>queue with no consumer</strong> — a "parking lot" — that has a
+<code>x-message-ttl</code>. Nothing reads from it. The message just sits until its TTL
+expires, at which point RabbitMQ itself (not your code) dead-letters it onward to the
+real queue via that parking-lot queue's own <code>x-dead-letter-exchange</code>.
+</p>
+<pre><code>q.orders.inventory --nack--&gt; ex.orders.dlx --&gt; q.orders.dlx (your consumer)
+                                                      |
+                                        publish to ex.orders.retry
+                                                      v
+                                            q.orders.retry  (TTL, no consumer)
+                                                      |
+                                              TTL expires
+                                                      v
+                                    ex.orders / order.placed --&gt; q.orders.inventory again
+</code></pre>
+<p class="citation">
+Primary source — read this before coding:
+<a href="https://www.cloudamqp.com/docs/delayed-messages.html">CloudAMQP — Delayed messages with RabbitMQ</a>
+(the "TTL and Dead Letter Exchanges" section specifically).
+Also see <a href="https://www.rabbitmq.com/docs/dlx">RabbitMQ Docs — Dead Letter Exchanges</a>
+for the authoritative argument names.
+</p>
+
+<h2>Check your understanding</h2>
+<p>Three short-answer questions. Type an answer, hit Check, then compare.</p>
+
+<div class="quiz-q" data-answer="message ttl">
+  <p class="prompt">Q1. What queue-level setting makes a message wait before anything happens to it?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "message ttl"</strong> — set via the <code>x-message-ttl</code>
+    queue argument (milliseconds). It applies to the queue, not an individual publish call.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="dead lettering">
+  <p class="prompt">Q2. What's the broker mechanism that moves an expired message out of the parking-lot queue, without your application code running?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "dead lettering"</strong> — the same DLX mechanism you already use
+    for failures also fires on TTL expiry. That's what lets the parking lot have zero
+    consumer code.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="retry count">
+  <p class="prompt">Q3. Your existing <code>deadLetterConsumer</code> already reads a header to decide when to stop retrying and record a permanent failure instead. What does that header track?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "retry count"</strong> (the workspace glossary calls this the
+    <code>x-death</code> header's <code>count</code> field — see
+    <a href="../GLOSSARY.md">GLOSSARY.md</a>). This doesn't change in this lesson — the
+    parking lot sits <em>between</em> retries, it doesn't replace the counter.
+  </div>
+</div>
+
+<h2>The exercise</h2>
+<p>Three files in <code>dead-letter-service</code>. No full solution below — fill the
+blanks yourself using the pattern above and the DLX docs. Values in <code>___</code> are
+yours to decide/fill.</p>
+
+<div class="exercise">
+<h3>1. <span class="file">dead-letter-service/src/constants.ts</span></h3>
+<p>Add three new constants alongside the existing ones (same objects, new keys):</p>
+<pre><code>EXCHANGES.ORDERS_RETRY = '___'      // pick a name consistent with ex.orders / ex.orders.dlx
+QUEUES.ORDERS_RETRY   = '___'       // pick a name consistent with q.orders.dlx
+ROUTING_KEYS.ORDER_RETRY = '___'    // pick a routing key consistent with order.placed / order.failed
+</code></pre>
+</div>
+
+<div class="exercise">
+<h3>2. <span class="file">dead-letter-service/src/rabbitmq/topology.ts</span></h3>
+<p>Add the parking-lot exchange and queue. This queue is never consumed from — it only
+needs the TTL and dead-letter arguments:</p>
+<pre><code>await channel.assertExchange(EXCHANGES.ORDERS_RETRY, EXCHANGE_TYPES.___, { durable: true });
+
+await channel.assertQueue(QUEUES.ORDERS_RETRY, {
+  durable: true,
+  arguments: {
+    'x-message-ttl': ___,                        // milliseconds — pick a delay you can watch happen
+    'x-dead-letter-exchange': ___,                // where should it land once TTL expires?
+    'x-dead-letter-routing-key': ___,             // what routing key gets it back into q.orders.inventory?
+  },
+});
+
+await channel.bindQueue(QUEUES.ORDERS_RETRY, EXCHANGES.ORDERS_RETRY, ROUTING_KEYS.ORDER_RETRY);
+</code></pre>
+<p class="ask-agent">Stuck on which exchange/routing key sends it back to
+<code>q.orders.inventory</code>? Re-read <code>inventory-service/src/rabbitmq/topology.ts</code>
+— the answer is already declared there. Ask me if it's still not clicking.</p>
+</div>
+
+<div class="exercise">
+<h3>3. <span class="file">dead-letter-service/src/rabbitmq/consumers/deadLetterConsumer.ts</span></h3>
+<p>Find the retry branch — currently:</p>
+<pre><code>channel.publish(EXCHANGES.ORDERS, ROUTING_KEYS.ORDER_PLACED, payload, {
+  persistent: true,
+  headers: msg.properties.headers,
+});</code></pre>
+<p>Change the <em>target</em> so it goes to the parking lot instead of straight back to
+the live exchange (keep the <code>headers</code> forwarding — you still need
+<code>x-death</code> to keep incrementing):</p>
+<pre><code>channel.publish(EXCHANGES.___, ROUTING_KEYS.___, payload, {
+  persistent: true,
+  headers: msg.properties.headers,
+});</code></pre>
+<p>Update the log line too — it currently says <code>"RETRYING → republished"</code>,
+which is no longer accurate the instant it happens.</p>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+  <li><code>docker-compose up -d && npm start</code></li>
+  <li>Force a failure: <code>POST /api/v1/inventory/toggle-fail</code>, then
+    <code>POST /api/v1/orders</code></li>
+  <li>Open <code>http://localhost:15672</code> → Queues. You should see the message
+    sitting in your new parking-lot queue with a non-zero message count, then draining
+    to zero once the TTL you picked elapses.</li>
+  <li>Watch <code>dead-letter-service</code> logs — you should see the order arrive
+    back in <code>q.orders.inventory</code> only after the delay, not instantly.</li>
+  <li>Turn failure mode back off (<code>toggle-fail</code> again) before the retry
+    lands, and confirm it succeeds on that attempt instead of exhausting
+    <code>MAX_RETRIES</code>.</li>
+</ol>
+
+<div class="win">
+You now have retry-with-backoff using nothing but queue arguments — no scheduler, no
+extra library, no polling loop. The broker is doing the waiting for you.
+</div>
+
+<h2>Next up</h2>
+<p>Two candidates queued in <a href="../MISSION.md">MISSION.md</a>: <strong>prefetch/QoS</strong>
+(fairness when multiple consumers share a queue) or <strong>publisher confirms</strong>
+(closing the reliability gap on the publish side). Tell me which one you want next, or
+ask me anything about this lesson first — I'm your teacher here, not just a code generator.</p>
+
+<div class="nav">
+  Reference: <a href="../reference/dlx-retry-patterns.html">DLX &amp; Retry Patterns cheat sheet</a> ·
+  <a href="../GLOSSARY.md">Glossary</a> ·
+  <a href="../MISSION.md">Mission</a>
+</div>
+
+</body>
+</html>
