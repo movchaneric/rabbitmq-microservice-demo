@@ -20,11 +20,14 @@ export function deadLetterConsumer(channel: Channel): void {
 
     if (deathCount < MAX_RETRIES) {
       const payload = Buffer.from(JSON.stringify(order));
-      channel.publish(EXCHANGES.ORDERS, ROUTING_KEYS.ORDER_PLACED, payload, {
+      // Publish into the parking log queue instead directly to the inventory queue
+      channel.publish(EXCHANGES.ORDERS_DLX, ROUTING_KEYS.ORDER_RETRY, payload, {
         persistent: true,
         headers: msg.properties.headers,
       });
-      log(`RETRYING → republished orderId=${order.orderId}`);
+      console.log(
+        `RETRYING → parked orderId=${order.orderId}, will return in 8s`,
+      );
     } else {
       const entry: DeadLetter = {
         ...order,
