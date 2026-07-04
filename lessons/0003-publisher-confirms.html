@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lesson 3 — Publisher Confirms</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>Lesson 3: Publisher Confirms</h1>
+<p class="subtitle">Tied to mission: close the last named gap — the publish side of reliability</p>
+
+<h2>Where you are</h2>
+<p>
+Everything you've built so far — parking-lot retry, prefetch — is about what happens
+<em>after</em> a message is safely inside RabbitMQ. Nothing yet covers the very first
+step: <code>order-service</code>'s publish itself.
+</p>
+<pre><code>channel?.publish("ex.orders", "order.placed", payload, { persistent: true });
+res.status(201).json(order);</code></pre>
+<p>
+That <code>publish()</code> call returns a boolean synchronously — but that boolean
+only tells you whether amqplib's local write buffer is full (its own kind of
+backpressure signal), not whether RabbitMQ actually received, routed, and persisted
+the message. The very next line replies <code>201 Created</code> to the customer
+regardless. If the connection drops in the split second between "we called publish"
+and "the broker actually wrote it to disk," the order is gone — and the customer
+already has a success response telling them otherwise.
+</p>
+
+<h2>The concept: acks, but for the publisher</h2>
+<p>
+You already know the consumer side of this: no message is ever really "gone" until
+your code calls <code>ack</code>. Publisher confirms are the same idea, flipped —
+RabbitMQ acks <em>you</em>, the publisher, once it's actually taken responsibility
+for the message.
+</p>
+<p>
+To use them in amqplib, you create the channel differently:
+</p>
+<pre><code>const channel = await connection.createConfirmChannel();  // instead of createChannel()</code></pre>
+<p>
+Then every <code>publish()</code> on that channel accepts a callback that fires once
+RabbitMQ confirms (or rejects) that specific message:
+</p>
+<pre><code>channel.publish(exchange, key, payload, options, (err) => {
+  if (err) {
+    // RabbitMQ nacked it, or the channel died before confirming
+  } else {
+    // truly safe — RabbitMQ has it
+  }
+});</code></pre>
+<p class="citation">
+Primary source — read the "Strategy #1, #2, #3" section before coding:
+<a href="https://www.rabbitmq.com/tutorials/tutorial-seven-java">RabbitMQ Tutorial 7 — Reliable Publishing with Publisher Confirms</a>.
+Also see <a href="https://www.rabbitmq.com/docs/confirms">RabbitMQ Docs — Consumer Acknowledgements and Publisher Confirms</a>.
+</p>
+
+<div class="callout">
+<strong>Three strategies, one tradeoff (throughput vs. simplicity):</strong>
+<ul>
+  <li><strong>Sync per-message</strong> — publish, wait for that one confirm, then
+    publish the next. Simplest, slowest (one network round-trip per message).</li>
+  <li><strong>Batch</strong> — publish many, then wait once for the whole batch.
+    Much faster, but a failure tells you "something in this batch failed," not which one.</li>
+  <li><strong>Async (what you'll build)</strong> — publish and register a callback
+    per message; keep publishing without blocking. Best throughput, and you still get
+    a precise per-message result.</li>
+</ul>
+</div>
+
+<h2>Check your understanding</h2>
+
+<div class="quiz-q" data-answer="taken responsibility">
+  <p class="prompt">Q1. What does a publisher confirm actually tell the publisher, once received?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "taken responsibility"</strong> — RabbitMQ is asserting it has
+    the message (routed and, for a durable queue + persistent message, on disk), not
+    just that it accepted your TCP write.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="channel creation">
+  <p class="prompt">Q2. What has to change about *how the channel itself is created* to enable confirms at all?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "channel creation"</strong> — <code>createConfirmChannel()</code>
+    instead of <code>createChannel()</code>. Confirms aren't a flag you set later;
+    they're a different kind of channel from the start.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="per message">
+  <p class="prompt">Q3. In the async strategy you're about to build, how granular is the result you get back — per batch, or per what?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "per message"</strong> — that's the whole advantage of async
+    over batch: full throughput, but you still know exactly which message succeeded
+    or failed.
+  </div>
+</div>
+
+<h2>The exercise</h2>
+<p>Two files in <code>order-service</code>. Fill it in yourself using the pattern above.</p>
+
+<div class="exercise">
+<h3>1. <span class="file">order-service/src/rabbitmq/connection.ts</span></h3>
+<p>Find the line that creates the channel:</p>
+<pre><code>channel = await connection.createChannel();</code></pre>
+<p>Change it to a confirm channel:</p>
+<pre><code>channel = await connection.___();</code></pre>
+</div>
+
+<div class="exercise">
+<h3>2. <span class="file">order-service/src/index.ts</span></h3>
+<p>Currently:</p>
+<pre><code>channel?.publish("ex.orders", "order.placed", payload, { persistent: true });
+res.status(201).json(order);</code></pre>
+<p>
+Move the response so it only fires <em>inside</em> the confirm callback — success
+only after RabbitMQ actually confirms, an error response if it doesn't:
+</p>
+<pre><code>channel?.publish("ex.orders", "order.placed", payload, { persistent: true }, (err) => {
+  if (err) {
+    log(`PUBLISH FAILED → orderId=${order.orderId}`);
+    res.status(___).json({ error: "___" });
+  } else {
+    res.status(___).json(order);
+  }
+});</code></pre>
+<p class="ask-agent">
+What status code fits an "we accepted your request but couldn't actually queue it"
+failure? Think about what's semantically true here — ask me if you want a second
+opinion before picking one.
+</p>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+  <li>Add a timestamp log right before the <code>publish</code> call and another
+    inside the callback — confirm there's a real (if small) gap between them. That
+    gap is the round-trip to RabbitMQ and back; with the old code, the response went
+    out <em>before</em> that gap even started.</li>
+  <li><code>docker-compose up -d && npm start</code>, then <code>POST /api/v1/orders</code>
+    as usual — should still return <code>201</code>, just a few milliseconds later
+    than before.</li>
+  <li>Stretch (optional, not required to finish the lesson): stop the RabbitMQ
+    container (<code>docker-compose stop rabbitmq</code>) and try posting an order —
+    watch what error surfaces now versus what the old fire-and-forget code would have
+    silently swallowed.</li>
+</ol>
+
+<div class="win">
+The customer's "order placed" response is now only ever true. Before this, a success
+response was a guess; now it's a guarantee backed by RabbitMQ itself.
+</div>
+
+<h2>Next up</h2>
+<p>
+This closes every item named in <a href="../MISSION.md">MISSION.md</a>'s success
+criteria. Once this is done, worth a quick conversation on where the mission goes next
+— idempotent consumers (fixing the notification double-send from
+<a href="../learning-records/0002-topic-exchange-fanout-is-broker-side.md">learning record 0002</a>)
+is the natural next candidate, or observability, or calling this phase complete and
+revisiting the "out of scope" list in the mission. Ask me anything about confirms first.
+</p>
+
+<div class="nav">
+  <a href="../GLOSSARY.md">Glossary</a> ·
+  <a href="../MISSION.md">Mission</a> ·
+  <a href="0002-prefetch-qos.html">&larr; Lesson 2</a>
+</div>
+
+</body>
+</html>

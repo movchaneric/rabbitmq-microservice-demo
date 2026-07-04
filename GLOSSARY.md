@@ -78,3 +78,10 @@ _Avoid_: Batch size, buffer size
 Delivered to a consumer but not yet acked or nacked. Shown per-queue in the management
 UI; this is exactly the count **prefetch** puts a ceiling on.
 _Avoid_: In-flight, pending (both used loosely elsewhere; this workspace says unacked)
+
+**Publisher confirm**:
+The publish-side counterpart to **ack** — RabbitMQ notifying the publisher, on a
+channel created via `createConfirmChannel()`, that it has actually taken
+responsibility for a specific published message, rather than the publisher just
+assuming success the instant `publish()` is called.
+_Avoid_: Publish ack (functionally similar but a distinct AMQP concept from consumer acks)
