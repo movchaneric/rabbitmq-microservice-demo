@@ -14,6 +14,7 @@ export async function setupTopology(channel: Channel): Promise<void> {
   await channel.assertQueue(QUEUES.ORDERS_INVENTORY, {
     durable: true,
     arguments: {
+      "x-queue-type": "quorum",
       "x-dead-letter-exchange": EXCHANGES.ORDERS_DLX,
       "x-dead-letter-routing-key": ROUTING_KEYS.ORDER_FAILED,
     },
