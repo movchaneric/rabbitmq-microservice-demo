@@ -1,10 +1,12 @@
-import amqp, { Channel } from 'amqplib';
+import amqp, { Channel, ChannelModel } from 'amqplib';
 import { log } from '../logger';
+
+let connection: ChannelModel | null = null;
 
 export async function createConnection(retries = 5): Promise<Channel> {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const connection = await amqp.connect(process.env.RABBITMQ_URL as string);
+      connection = await amqp.connect(process.env.RABBITMQ_URL as string);
       const channel = await connection.createChannel();
       log('Connected to RabbitMQ');
       return channel;
@@ -15,4 +17,8 @@ export async function createConnection(retries = 5): Promise<Channel> {
     }
   }
   throw new Error('Failed to connect to RabbitMQ');
+}
+
+export function getConnection(): ChannelModel | null {
+  return connection;
 }
