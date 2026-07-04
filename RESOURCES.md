@@ -48,6 +48,30 @@
   Use for: anything that smells like a bug or an edge case in RabbitMQ's own behavior,
   not a "how do I" question.
 
+- [amqp-node/amqplib GitHub Issue #153 — "How to reestablish connection after a failure?"](https://github.com/amqp-node/amqplib/issues/153)
+  Straight from the library's own maintainers/community on listening for `'close'`/`'error'`
+  and replaying the connect sequence. Use for: Lesson 5 (connection/channel recovery).
+- [Ecostack — RabbitMQ Auto Reconnect in Node.js](https://ecostack.dev/posts/rabbitmq-auto-reconnect-nodejs/)
+  Practical walkthrough of the same reconnect pattern. Use for: cross-checking the
+  hand-rolled reconnect logic against a second real-world example.
+- [amqp-connection-manager (npm)](https://www.npmjs.com/package/amqp-connection-manager)
+  A wrapper that automates reconnect-and-resetup in real production code. Not used in
+  this repo (hand-rolling it is the point, for learning), but worth knowing it exists
+  before reaching for a hand-rolled version in a real project.
+
+- [RabbitMQ Docs — Clustering Guide](https://www.rabbitmq.com/docs/clustering)
+  The Erlang cookie, hostname resolution requirements, and `join_cluster` mechanics.
+  Use for: Lesson 6 (clustering and quorum queues).
+- [RabbitMQ Docs — Quorum Queues](https://www.rabbitmq.com/docs/quorum-queues)
+  `x-queue-type: "quorum"`, default replication factor, and what happens on node
+  failure. Use for: Lesson 6, and cross-referencing with publisher confirms (Lesson 3)
+  on what a confirm actually guarantees once queues are replicated.
+
+- [Yannick Pereira-Reis — "RabbitMQ high available cluster with docker and HAProxy"](https://ypereirareis.github.io/blog/2017/04/03/rabbitmq-high-available-cluster-haproxy-docker/)
+  Widely-referenced walkthrough of the HAProxy-in-front-of-a-cluster pattern, with a
+  companion [GitHub repo](https://github.com/ypereirareis/docker-rabbitmq-ha-cluster).
+  Use for: Lesson 7 (load balancer in front of the cluster).
+
 ## Gaps
 - No single trusted source yet on idempotent-consumer patterns specific to RabbitMQ
   redelivery (most idempotency writing is Kafka-flavored). Will need to search again

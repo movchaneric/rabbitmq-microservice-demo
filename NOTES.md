@@ -16,3 +16,14 @@
   answer for them to actually type into the repo. Retrieval happens in the dialogue;
   the guide is the execution artifact, not a shortcut around the dialogue. Don't skip
   straight to a guide file without the interactive pass first.
+- **Hard correction (Lesson 7, HAProxy):** I drifted into writing `haproxy.cfg` and
+  editing `docker-compose.yml` myself, and running all the diagnostic/fix commands,
+  instead of guiding the user through writing them. User explicitly stopped me: "this
+  is the purpose of this project to learn... I suppose to write everything by myself."
+  Had to revert `haproxy.cfg` and `docker-compose.yml` back to their own Lesson 6
+  state. Rule going forward: I write the lesson HTML (concept/quiz/exercise blanks)
+  and reference material (GLOSSARY.md/RESOURCES.md) — the user writes every actual
+  implementation file and runs every command themselves, even for infra config files
+  (docker-compose.yml, haproxy.cfg, etc.), not just application code. I only run
+  read-only diagnostic commands (checking status, reading logs) when actively
+  troubleshooting something *they* did, not to implement the exercise for them.

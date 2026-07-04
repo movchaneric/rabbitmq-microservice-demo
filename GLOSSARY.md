@@ -85,3 +85,44 @@ channel created via `createConfirmChannel()`, that it has actually taken
 responsibility for a specific published message, rather than the publisher just
 assuming success the instant `publish()` is called.
 _Avoid_: Publish ack (functionally similar but a distinct AMQP concept from consumer acks)
+
+**Idempotent consumer**:
+A consumer whose externally-visible effect is the same whether it processes a given
+message once or multiple times — the standard response to at-least-once delivery,
+which guarantees duplicates are possible. Achieved by checking a stable message
+identifier against what's already been handled before producing any effect.
+_Avoid_: Exactly-once (RabbitMQ doesn't provide this; idempotency is what compensates for its absence)
+
+**Cluster**:
+Multiple RabbitMQ nodes sharing exchanges, bindings, and (for replicated queue types)
+queue contents, so clients can connect to any node and see the same topology.
+Clustering alone doesn't replicate a queue's messages — see **quorum queue**.
+_Avoid_: Replica set (a term from other systems, not RabbitMQ's own vocabulary)
+
+**Quorum queue**:
+A queue type (`x-queue-type: "quorum"`) whose messages are replicated across multiple
+cluster nodes via the Raft consensus algorithm — by default up to three members, one
+per node. Stays available as long as a majority of members are up; a 3-member queue
+tolerates 1 node failure, a 5-member queue tolerates 2.
+_Avoid_: Mirrored queue / HA queue (the older, now-deprecated classic-queue replication mechanism this replaces)
+
+**Erlang cookie**:
+The shared secret (`RABBITMQ_ERLANG_COOKIE`) that must be identical across every node
+in a cluster — nodes and CLI tools use it to authenticate that they're allowed to talk
+to each other at all.
+_Avoid_: Cluster password (not how RabbitMQ documents it, even though the role is similar)
+
+**Load balancer (in front of a cluster)**:
+A component sitting between clients and a multi-node RabbitMQ cluster, giving clients
+one stable address while actively health-checking each node and routing only to
+healthy ones. Must run outside the cluster itself — if it lived on a cluster node,
+losing that node would take down the entry point along with it.
+_Avoid_: Reverse proxy (technically accurate for the HTTP/management-UI side, but this
+workspace uses "load balancer" since the AMQP side is raw TCP proxying, not HTTP)
+
+**Connection recovery**:
+Detecting that an amqplib connection has died (via its `'close'` event) and
+re-running the full connect sequence — new connection, new channel, re-asserted
+topology — rather than leaving a service holding a stale, unusable reference until a
+human restarts the process.
+_Avoid_: Reconnect (fine informally, but this workspace's term covers re-establishing topology too, not just the socket)

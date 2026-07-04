@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lesson 7 — HAProxy in Front of the Cluster</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>Lesson 7: HAProxy in Front of the Cluster</h1>
+<p class="subtitle">Tied to mission: the gap you found yourself — 2 healthy nodes, but nothing routes to them</p>
+
+<h2>Where you are</h2>
+<p>
+Lesson 6 proved <code>q.orders.inventory</code>'s <em>data</em> survives losing
+<code>rabbitmq1</code> — a new leader gets elected among the survivors automatically.
+But you immediately hit the real gap yourself: with <code>rabbitmq1</code> down, you
+couldn't reach the management UI or publish a single order, even though two perfectly
+healthy nodes were sitting right there. Nothing was pointing clients at them.
+</p>
+
+<h2>The concept: a stable address in front of an unstable topology</h2>
+<p>
+The fix is a <strong>load balancer</strong> sitting in front of all three nodes.
+Clients stop connecting to any individual RabbitMQ node entirely — they connect to
+the load balancer's one stable address, and it decides, based on active health checks,
+which node actually receives that connection. If a node goes down, the load balancer
+simply stops routing to it; clients never need to know a topology change happened at
+all.
+</p>
+<p>
+<strong>HAProxy</strong> is the standard tool for this in front of RabbitMQ — it
+handles raw TCP proxying (what AMQP needs) as well as HTTP (for the management UI),
+with configurable active health checks per backend server.
+</p>
+<div class="callout">
+<strong>Critical rule, easy to get wrong:</strong> HAProxy must <em>not</em> run on
+one of the RabbitMQ cluster nodes. If it did, losing that machine would take down both
+a RabbitMQ node <em>and</em> your only entry point at the same time — reintroducing
+the exact single point of failure this lesson is trying to remove.
+</div>
+<p class="citation">
+Primary source: <a href="https://ypereirareis.github.io/blog/2017/04/03/rabbitmq-high-available-cluster-haproxy-docker/">Yannick Pereira-Reis — "RabbitMQ high available cluster with docker and HAProxy"</a>
+(widely-referenced, with a companion <a href="https://github.com/ypereirareis/docker-rabbitmq-ha-cluster">GitHub repo</a>).
+</p>
+
+<h2>Check your understanding</h2>
+
+<div class="quiz-q" data-answer="one stable">
+  <p class="prompt">Q1. After this change, how many distinct RabbitMQ hostnames should your Node services' code need to know about?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "one stable"</strong> — the load balancer's address. This is a
+    pure infrastructure fix; zero application code changes.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="not cluster">
+  <p class="prompt">Q2. Where should HAProxy itself run — on one of the cluster nodes, or where?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "not cluster"</strong> (i.e. not on a cluster node) — otherwise
+    losing that node takes the load balancer down with it.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="active health">
+  <p class="prompt">Q3. What does HAProxy use to decide whether to keep routing traffic to a given node?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "active health"</strong> (health checks) — HAProxy actively
+    probes each backend on an interval, rather than waiting to fail a real request
+    first.
+  </div>
+</div>
+
+<h2>The exercise</h2>
+<p>Since you're keeping <code>rabbitmq1</code> down deliberately, this gets built and
+verified against a 2-of-3 cluster from the start — a good, honest test.</p>
+
+<div class="exercise">
+<h3>1. New file: <span class="file">haproxy.cfg</span> (repo root)</h3>
+<pre><code>global
+    log stdout format raw local0
+
+defaults
+    log global
+    mode tcp
+    timeout connect 5s
+    timeout client 30s
+    timeout server 30s
+
+frontend amqp_front
+    bind *:5672
+    default_backend amqp_back
+
+backend amqp_back
+    balance roundrobin
+    server rabbitmq1 rabbitmq1:5672 check inter 2000 rise 2 fall 3
+    server rabbitmq2 rabbitmq2:5672 check inter 2000 rise 2 fall 3
+    server rabbitmq3 rabbitmq3:5672 check inter 2000 rise 2 fall 3
+
+frontend mgmt_front
+    bind *:15672
+    default_backend mgmt_back
+
+backend mgmt_back
+    balance roundrobin
+    server rabbitmq1 rabbitmq1:15672 check inter 2000 rise 2 fall 3
+    server rabbitmq2 rabbitmq2:15672 check inter 2000 rise 2 fall 3
+    server rabbitmq3 rabbitmq3:15672 check inter 2000 rise 2 fall 3
+
+listen stats
+    bind *:8404
+    mode http
+    stats enable
+    stats uri /
+    stats refresh 5s
+</code></pre>
+<p class="ask-agent">
+That <code>check inter 2000 rise 2 fall 3</code> means: probe every 2 seconds, need 2
+consecutive successes to mark a server back up, 3 consecutive failures to mark it
+down. Ask me why "3 failures before marking down" is safer than "1 failure" if this
+isn't obvious.
+</p>
+</div>
+
+<div class="exercise">
+<h3>2. <span class="file">docker-compose.yml</span> — two changes</h3>
+<p>
+Remove the <code>ports:</code> block from <code>rabbitmq1</code> entirely — it should
+no longer be reachable directly from your host, only through HAProxy now. Then add a
+new <code>haproxy</code> service:
+</p>
+<pre><code>haproxy:
+  image: haproxy:2.9
+  volumes:
+    - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+  ports:
+    - "5672:5672"
+    - "15672:15672"
+    - "8404:8404"
+  networks: [rabbitmq-cluster]
+  depends_on: [rabbitmq1, rabbitmq2, rabbitmq3]
+</code></pre>
+<p>
+Notice <code>RABBITMQ_URL</code> in every service's <code>.env</code> stays exactly
+<code>amqp://guest:guest@localhost:5672</code> — unchanged. That's the whole point:
+<code>localhost:5672</code> now reaches HAProxy instead of <code>rabbitmq1</code>
+directly, and your application code never needs to know the difference.
+</p>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+  <li><code>docker compose up -d haproxy</code> (and anything else not already running)</li>
+  <li>Open <code>http://localhost:8404</code> — HAProxy's stats page. You should see
+    <code>rabbitmq1</code> marked <strong>down</strong> (red) for both backends, and
+    <code>rabbitmq2</code>/<code>rabbitmq3</code> marked <strong>up</strong> (green) —
+    live proof it's actively health-checking, not just blindly round-robining.</li>
+  <li><code>http://localhost:15672</code> should now load the management UI again —
+    routed by HAProxy to whichever node is healthy, with <code>rabbitmq1</code> still down.</li>
+  <li>Restart <code>order-service</code> (nothing else needs to change) and confirm
+    <code>POST /api/v1/orders</code> returns <code>201</code> again — through the load
+    balancer, with zero code changes, while <code>rabbitmq1</code> stays off.</li>
+  <li>Stretch: bring <code>rabbitmq1</code> back up and watch it turn green in the
+    stats page on its own, with no restart of HAProxy needed.</li>
+</ol>
+
+<div class="win">
+Losing a node no longer means losing access to the system at all — the load balancer
+absorbed exactly the failure mode you discovered by hand in Lesson 6.
+</div>
+
+<h2>Next up</h2>
+<p>
+This closes the loop MISSION.md opened when clustering moved into scope. Worth
+revisiting after this: extending Lesson 5's <code>reconnectForever</code> to the other
+three services (only <code>order-service</code> has it), or finally circling back to
+Lesson 4's paused idempotent-consumers work. Ask me anything about HAProxy first.
+</p>
+
+<div class="nav">
+  <a href="../GLOSSARY.md">Glossary</a> ·
+  <a href="../MISSION.md">Mission</a> ·
+  <a href="0006-clustering-quorum-queues.html">&larr; Lesson 6</a>
+</div>
+
+</body>
+</html>
