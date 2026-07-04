@@ -5,6 +5,8 @@ import { log } from "../logger";
 
 export async function connect(): Promise<void> {
   const channel = await createConnection();
+  // Cap unacked messages at 3 so RabbitMQ can't push the entire ready queue
+  // onto this one consumer at once — without this, delivery is unlimited.
   await channel.prefetch(3);
   await setupTopology(channel);
   startConsumer(channel);

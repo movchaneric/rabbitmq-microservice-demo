@@ -4,13 +4,9 @@ import { Order } from "../../types";
 import { QUEUES } from "../../constants";
 
 export function ordersInventoryConsumer(channel: Channel): void {
-  channel.consume(QUEUES.ORDERS_INVENTORY, async (msg) => {
+  channel.consume(QUEUES.ORDERS_INVENTORY, (msg) => {
     if (!msg) return;
     const order: Order = JSON.parse(msg.content.toString());
-
-    await new Promise((resolve, rejecet) => {
-      setTimeout(resolve, 5000);
-    });
 
     console.log("Order received in inventory queue: ", order);
     if (shouldFail()) {

@@ -1,13 +1,16 @@
-import amqp, { Channel } from "amqplib";
+import amqp, { ConfirmChannel } from "amqplib";
 import { log } from "../logger";
 
-let channel: Channel | null = null;
+let channel: ConfirmChannel | null = null;
 
-export async function createConnection(retries = 5): Promise<Channel> {
+export async function createConnection(retries = 5): Promise<ConfirmChannel> {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const connection = await amqp.connect(process.env.RABBITMQ_URL as string);
-      channel = await connection.createChannel();
+      // Confirm channel, not a plain channel: publish() below needs a
+      // per-message callback so a failed/never-confirmed publish doesn't
+      // silently look like a success to the caller.
+      channel = await connection.createConfirmChannel();
       log("Connected to RabbitMQ");
       return channel;
     } catch (err) {
@@ -21,6 +24,6 @@ export async function createConnection(retries = 5): Promise<Channel> {
   throw new Error("Failed to connect to RabbitMQ");
 }
 
-export function getChannel(): Channel | null {
+export function getChannel(): ConfirmChannel | null {
   return channel;
 }
