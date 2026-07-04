@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Redis Lesson 1 — Client Wiring &amp; Basic Commands</title>
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>Redis Lesson 1: Client Wiring &amp; Basic Commands</h1>
+<p class="subtitle">Tied to mission: prove Redis is reachable from <code>gateway</code> before building anything on top of it</p>
+
+<h2>Where you are</h2>
+<p>
+This is a new track, separate from the RabbitMQ lessons — see
+<a href="../MISSION-REDIS.md">MISSION-REDIS.md</a>. The end goal is a Redis-backed rate
+limiter in front of <code>order-service</code>, but this first lesson isn't about rate
+limiting at all. It's about getting a Redis client talking to a real Redis instance from
+inside <code>gateway</code>, and getting comfortable with the handful of commands rate
+limiting actually runs on: <code>INCR</code>, <code>EXPIRE</code>, <code>TTL</code>, and
+running two of those atomically together.
+</p>
+
+<h2>The concept: why these specific commands</h2>
+<p>
+A rate limiter's core question is "how many requests has this client made recently, and
+when does that count reset?" Two Redis primitives answer that:
+</p>
+<ul>
+<li><code>INCR key</code> — atomically increment an integer stored at <code>key</code>,
+creating it at <code>0</code> first if it doesn't exist yet, and returning the new value.
+This is your request counter.</li>
+<li><code>EXPIRE key seconds</code> — attach a TTL to an existing key. Once it elapses,
+Redis deletes the key on its own — nothing in your application has to run a cleanup job.
+This is what makes the counter "reset" without you writing a scheduler.</li>
+<li><code>TTL key</code> — ask Redis how many seconds are left before a key expires (or
+<code>-1</code> if it has no expiry, <code>-2</code> if it doesn't exist). Useful for
+telling a client "retry after N seconds."</li>
+</ul>
+<div class="callout">
+<strong>The bug this lesson exists to head off:</strong> calling <code>INCR</code> then
+<code>EXPIRE</code> as two separate round-trips has a real race — if your process
+crashes (or is just slow) between the two calls, that key never gets a TTL and becomes a
+permanent counter that never resets. Redis's <code>MULTI</code>/<code>EXEC</code> lets you
+queue both commands and send them as one atomic unit, so either both happen or neither
+does.
+</div>
+<p class="citation">
+Primary source: <a href="https://redis.io/docs/latest/develop/clients/nodejs/">Redis Docs — Node.js client (node-redis)</a>,
+specifically the "Connect" and "Transactions" sections.
+Also see <a href="https://redis.io/docs/latest/commands/expire/">Redis Docs — EXPIRE</a> for what happens to a key's TTL under `INCR`, `SET`, etc.
+</p>
+
+<h2>Check your understanding</h2>
+
+<div class="quiz-q" data-answer="creates it">
+  <p class="prompt">Q1. If you call <code>INCR</code> on a key that doesn't exist yet, what happens — does it error, or does something else?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "creates it"</strong> — Redis treats a missing key as <code>0</code>
+    and <code>INCR</code> both creates and increments it in one atomic step, returning
+    <code>1</code>.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="never expires">
+  <p class="prompt">Q2. You <code>INCR</code> a key but never call <code>EXPIRE</code> on it. What happens to that key over time?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "never expires"</strong> — without an explicit TTL, the key lives
+    forever (until you delete it or the server restarts without persistence). This is
+    exactly the bug a rate limiter can't afford.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="multi exec">
+  <p class="prompt">Q3. What Redis mechanism lets you run <code>INCR</code> and <code>EXPIRE</code> together as one atomic unit, so a crash between them can't happen?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "multi exec"</strong> (<code>MULTI</code>/<code>EXEC</code>, exposed
+    in node-redis as <code>client.multi()...exec()</code>) — queues commands and sends
+    them as one atomic batch.
+  </div>
+</div>
+
+<h2>The exercise</h2>
+<p>Four small changes across the repo. No full solution below — fill the <code>___</code>
+blanks yourself using the docs linked above.</p>
+
+<div class="exercise">
+<h3>1. <span class="file">docker-compose.yml</span></h3>
+<p>Add a Redis service alongside the existing RabbitMQ ones. It only needs to be reachable
+on the default Redis port from other containers on the same network — decide whether it
+needs a host port mapping too (do you want to poke at it with <code>redis-cli</code> from
+your own machine?).</p>
+<pre><code>redis:
+  image: redis:___          # pick a version tag, not just "latest"
+  ports:
+    - "___:___"              # host:container — only if you want host access
+  networks: [___]            # does this need to be the same network as rabbitmq-cluster,
+                              # or a new one? gateway isn't in docker-compose at all yet —
+                              # it runs via `npm start` on your host. What does that mean
+                              # for which network/hostname gateway should use to reach this?
+</code></pre>
+<p class="ask-agent">That last question is the actual design decision in this exercise —
+think about it before just copying the RabbitMQ pattern. Ask me if you want to talk it
+through.</p>
+</div>
+
+<div class="exercise">
+<h3>2. <span class="file">gateway/.env.example</span> and <span class="file">gateway/.env</span></h3>
+<p>Add a connection string the client can use directly:</p>
+<pre><code>REDIS_URL=redis://___:___
+</code></pre>
+</div>
+
+<div class="exercise">
+<h3>3. <span class="file">gateway/package.json</span></h3>
+<p>Add the official <code>redis</code> package (v4/v5, promise-based — not the older
+callback-style API, and not <code>ioredis</code>) as a dependency. Run the install
+yourself once it's added.</p>
+</div>
+
+<div class="exercise">
+<h3>4. <span class="file">gateway/src/redis/client.ts</span> (new file)</h3>
+<p>Create and connect a client once at startup, so every route can import and reuse the
+same connection instead of reconnecting per-request:</p>
+<pre><code>import { createClient } from 'redis';
+
+export const redisClient = createClient({ url: process.env.___ })
+  .on('error', (err) => console.error('___', err));
+
+export async function connectRedis() {
+  await redisClient.___();
+}
+</code></pre>
+<p>Then in <span class="file">gateway/src/index.ts</span>, call <code>connectRedis()</code>
+before (or alongside) <code>app.listen(...)</code> — a route that hits Redis before the
+client has connected will hang or throw.</p>
+</div>
+
+<div class="exercise">
+<h3>5. <span class="file">gateway/src/index.ts</span> — a throwaway verification route</h3>
+<p>Not the real rate limiter (that's Lesson 2) — just enough to prove the plumbing works.
+Add a route that atomically increments a fixed demo key with a short TTL and reports both
+the new count and the remaining TTL:</p>
+<pre><code>app.get('/api/v1/_debug/redis-demo', async (req, res) => {
+  const [count] = await redisClient.multi()
+    .___('demo:hits')                 // increment
+    .___('demo:hits', ___)            // set a TTL in seconds, only meaningful the
+                                       // first time the key is created — think about
+                                       // why re-setting it every request might be wrong
+    .exec();
+
+  const ttl = await redisClient.___('demo:hits');
+  res.json({ count, ttlSecondsRemaining: ttl });
+});
+</code></pre>
+<p class="ask-agent">The comment about "only meaningful the first time" is a real design
+question rate limiting will need in Lesson 2 — worth sitting with now rather than just
+making the demo route work. Ask me about it if you want to reason it through together.</p>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+  <li>Start Redis (however <code>docker-compose.yml</code> ends up structured), then
+    <code>npm start</code> for the rest of the stack.</li>
+  <li>Hit <code>GET http://localhost:3000/api/v1/_debug/redis-demo</code> repeatedly
+    (curl or browser). <code>count</code> should climb 1, 2, 3... and
+    <code>ttlSecondsRemaining</code> should count down.</li>
+  <li>Stop hitting it and wait past the TTL, then hit it again — <code>count</code> should
+    drop back to <code>1</code>, proving the key actually expired rather than just
+    resetting some in-memory variable.</li>
+  <li>Optional: if you gave Redis a host port mapping, connect with
+    <code>redis-cli</code> and run <code>GET demo:hits</code> / <code>TTL demo:hits</code>
+    yourself mid-test to see the raw state your route is reading.</li>
+</ol>
+
+<div class="win">
+You now have a real Redis connection from inside this stack, and you've watched
+<code>INCR</code>/<code>EXPIRE</code>/<code>TTL</code> behave exactly as the docs
+describe — not just read about them. That's the entire foundation the next lesson's
+fixed-window rate limiter is built from.
+</div>
+
+<h2>Next up</h2>
+<p>Redis Lesson 2: turn this into an actual <strong>fixed-window rate limiter</strong> as
+Express middleware in front of the order-placement route — same commands, real decision
+logic (allow vs. <code>429</code>). After that: sliding window (sorted sets), then token
+bucket, so you can compare all three with working code instead of just descriptions.</p>
+
+<div class="nav">
+  <a href="../MISSION-REDIS.md">Redis Mission</a>
+</div>
+
+</body>
+</html>
