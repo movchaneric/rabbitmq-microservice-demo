@@ -2,7 +2,11 @@
 
 An order → inventory/notification → dead-letter pipeline over RabbitMQ, used as a
 hands-on vehicle for learning production-grade messaging patterns one at a time. See
-[MISSION.md](MISSION.md) for the full goal and scope.
+[MISSION.md](rabbitMQ_learning/MISSION.md) for the full goal and scope.
+
+Learning docs live in two folders, one per track: **[rabbitMQ_learning/](rabbitMQ_learning/)**
+and **[redis_learning/](redis_learning/)** (started once the RabbitMQ arc below
+wrapped up — see [redis_learning/MISSION.md](redis_learning/MISSION.md)).
 
 ## Services
 
@@ -19,7 +23,9 @@ All services connect through **HAProxy** to a 3-node RabbitMQ **cluster** using
 
 Nearly every lesson below wasn't planned in advance — it was pulled into scope because
 live-testing the *previous* lesson exposed a gap. Full write-up with the problem and
-takeaway for each step: **[JOURNEY.md](JOURNEY.md)**.
+takeaway for each step: **[JOURNEY.md](rabbitMQ_learning/JOURNEY.md)**. Also see the
+**[Udemy course checklist](rabbitMQ_learning/rabbitmq-course-checklist.html)** for what's
+covered vs. still missing against an outside curriculum.
 
 ```mermaid
 flowchart TD
@@ -51,20 +57,20 @@ flowchart TD
 
 | Lesson | Topic | Status |
 |---|---|---|
-| 1 | [Delayed Retry (TTL Parking Lot)](lessons/0001-delayed-retry-ttl-parking-lot.html) | Done |
-| 2 | [Prefetch / QoS](lessons/0002-prefetch-qos.html) | Done |
-| 3 | [Publisher Confirms](lessons/0003-publisher-confirms.html) | Done |
-| 4 | [Idempotent Consumers](lessons/0004-idempotent-consumers.html) | Deferred |
-| 5 | [Connection & Channel Recovery](lessons/0005-connection-recovery.html) | Done |
-| 6 | [Clustering & Quorum Queues](lessons/0006-clustering-quorum-queues.html) | Done |
-| 7 | [HAProxy Load Balancer](lessons/0007-haproxy-load-balancer.html) | Done |
+| 1 | [Delayed Retry (TTL Parking Lot)](rabbitMQ_learning/lessons/0001-delayed-retry-ttl-parking-lot.html) | Done |
+| 2 | [Prefetch / QoS](rabbitMQ_learning/lessons/0002-prefetch-qos.html) | Done |
+| 3 | [Publisher Confirms](rabbitMQ_learning/lessons/0003-publisher-confirms.html) | Done |
+| 4 | [Idempotent Consumers](rabbitMQ_learning/lessons/0004-idempotent-consumers.html) | Deferred |
+| 5 | [Connection & Channel Recovery](rabbitMQ_learning/lessons/0005-connection-recovery.html) | Done |
+| 6 | [Clustering & Quorum Queues](rabbitMQ_learning/lessons/0006-clustering-quorum-queues.html) | Done |
+| 7 | [HAProxy Load Balancer](rabbitMQ_learning/lessons/0007-haproxy-load-balancer.html) | Done |
 
 ## Other docs
 
-- [MISSION.md](MISSION.md) — goal, success criteria, scope
+- [MISSION.md](rabbitMQ_learning/MISSION.md) — goal, success criteria, scope
 - [ROUTES.md](ROUTES.md) — API routes
-- [GLOSSARY.md](GLOSSARY.md) — terms introduced along the way
-- [RESOURCES.md](RESOURCES.md) — primary sources per lesson
+- [GLOSSARY.md](rabbitMQ_learning/GLOSSARY.md) — terms introduced along the way
+- [RESOURCES.md](rabbitMQ_learning/RESOURCES.md) — primary sources per lesson
 
 ## Running it
 

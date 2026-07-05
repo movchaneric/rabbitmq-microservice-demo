@@ -17,4 +17,4 @@ token bucket / leaky bucket) is new even if basic Redis commands aren't.
 - Do a quick client-wiring + basic-commands primer (Lesson 1) before any algorithm
   lesson, since "OK understanding" hasn't been verified against this specific stack
   (TypeScript gateway service, `redis` npm package) yet.
-- See [[MISSION-REDIS]] for how this shapes the lesson order.
+- See [[MISSION]] for how this shapes the lesson order.

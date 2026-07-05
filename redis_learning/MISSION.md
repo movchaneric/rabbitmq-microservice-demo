@@ -2,7 +2,8 @@
 
 ## Why
 This is a new, separate learning track in the same repo, started right after wrapping
-up the RabbitMQ arc (see [MISSION.md](MISSION.md) and [JOURNEY.md](JOURNEY.md)). The
+up the RabbitMQ arc (see [MISSION.md](../rabbitMQ_learning/MISSION.md) and
+[JOURNEY.md](../rabbitMQ_learning/JOURNEY.md)). The
 vehicle is the same demo, but the target this time is Redis, with **rate limiting** as
 the concrete driving problem — not Redis-as-a-topic in the abstract. The `gateway`
 service already sits in front of every other service and proxies all inbound HTTP, which
@@ -26,9 +27,10 @@ reaches `order-service` or hits RabbitMQ at all.
   write every implementation file (`gateway/src/*`, `docker-compose.yml`, `.env`, etc.)
   and run every command that changes state. See the workspace's hands-on-learning
   convention for the full rule.
-- Kept as a **separate track** from the RabbitMQ lessons — own lesson numbering
-  (`lessons/redis-000N-*.html`), own mission doc (this file), so the two chains don't
-  tangle. RabbitMQ mission stays paused as-is, not abandoned.
+- Kept as a **separate track** from the RabbitMQ lessons — own folder
+  (`redis_learning/`), own lesson numbering (`redis_learning/lessons/000N-*.html`), own
+  mission doc (this file), so the two chains don't tangle. RabbitMQ mission stays paused
+  as-is, not abandoned.
 
 ## Out of scope (for now)
 - Redis as a cache or pub/sub layer for the existing RabbitMQ demo — interesting, but
@@ -42,7 +44,7 @@ reaches `order-service` or hits RabbitMQ at all.
 ## Revision history
 - **2026-07-04** — Track created. Starting point: user has an "OK" working understanding
   of Redis already (exact commands/depth not yet assessed — see
-  [[redis-0001-baseline-prior-knowledge]]), and specifically wants to learn rate
+  [[0001-baseline-prior-knowledge]]), and specifically wants to learn rate
   limiting as the applied problem. Decided to do one short primer lesson (client wiring
   + the specific commands rate limiting needs) before touching any algorithm, rather
   than jumping straight to fixed-window.
