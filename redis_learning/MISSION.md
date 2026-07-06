@@ -39,6 +39,13 @@ reaches `order-service` or hits RabbitMQ at all.
   there to retrieve from. This applies "for the first lessons" of this track (client
   wiring counts). Resume interactive blanks once fundamentals are solid — don't default
   back to full-code for later, more-practiced material without being told to.
+- **Rule, stated directly on 2026-07-06:** every Redis client function used in an
+  exercise for the first time (or used in a new way) gets a short "what this expects and
+  returns" explainer — signature, each parameter, and the return shape — placed in the
+  lesson *before* that function appears in a blanked-out exercise. Surfaced when
+  `redisClient.eval()` was left in Lesson 5's exercise with no explanation of its
+  `{ keys, arguments }` options object or its return shape, before the blanks. Applies to
+  every future lesson, not just scripting-related ones.
 - Kept as a **separate track** from the RabbitMQ lessons — own folder
   (`redis_learning/`), own lesson numbering (`redis_learning/lessons/000N-*.html`), own
   mission doc (this file), so the two chains don't tangle. RabbitMQ mission stays paused
@@ -55,6 +62,16 @@ reaches `order-service` or hits RabbitMQ at all.
 - Distributed-systems edge cases in rate limiting (e.g. clock skew across Redis
   replicas) — single Redis instance first.
 
+## Open design questions (revisit later)
+- ~~The rate limiter key is hardcoded to the `orders` route.~~ **Being addressed now, as
+  Lesson 6** — sooner than "once a second route actually needs it," at the user's
+  request, right after Lesson 5. Lesson 6 refactors `tokenBucketRateLimiter.ts` from a
+  standalone middleware into `createTokenBucketLimiter(config)`, a factory that takes
+  `{ scope, capacity, refillPerSecond }` and returns a middleware closed over that
+  config — same fix originally proposed here (scope replaces the hardcoded `"orders"`
+  key segment). `rateLimiter.ts` and `slidingWindowRateLimiter.ts` are left as an
+  optional follow-up exercise (same transformation, not required to move on).
+
 ## Next phase (after rate limiting)
 - **Redis as an application-level cache in `inventory-service` and `order-service`** —
   planned, not started. Deliberately sequenced after rate limiting so the client
@@ -64,6 +81,27 @@ reaches `order-service` or hits RabbitMQ at all.
   explicit invalidation on write), and cache-aside vs. another pattern.
 
 ## Revision history
+- **2026-07-06** — Added Lesson 6 (limiter factory / closures), addressing the
+  hardcoded-`orders`-key open design question immediately rather than deferring it —
+  user asked to resolve it right after Lesson 5, before starting the caching phase.
+  Refactors `tokenBucketRateLimiter.ts` into `createTokenBucketLimiter(config)`; applying
+  the same refactor to the fixed-window and sliding-window limiters is left as an
+  optional follow-up.
+- **2026-07-06** — Added a standing rule: explain any Redis client function's signature
+  and return shape before it appears blanked in an exercise. Retrofitted into Lesson 5
+  for `redisClient.eval()`, which was left unexplained (the `{ keys, arguments }` options
+  object and its Lua-table-to-JS-array return shape).
+- **2026-07-06** — Added "Open design questions" section: rate limiter key hardcodes the
+  `orders` route name instead of taking it as a parameter, which won't scale to a second
+  rate-limited route without duplicating the middleware. Deferred as a factory-pattern
+  refactor to revisit once a real second route needs it.
+- **2026-07-06** — Added Lesson 5 (token bucket via a Lua `EVAL` script), closing out the
+  rate-limiting arc: fixed window, sliding window, and token bucket now all exist side by
+  side in `gateway/src/redis/`. This is the first lesson to introduce Redis scripting
+  (`EVAL`), needed because token bucket requires an atomic read-compute-write that plain
+  `MULTI` can't express (can't branch on a value read mid-transaction). Per the
+  genuinely-new-mechanism exception, the Lua script itself is given in full; only the
+  surrounding TypeScript (now a practiced pattern) is left blanked.
 - **2026-07-06** — Added Lesson 4 (sliding window via sorted sets), exercise with blanks
   (not full code — fundamentals are solid by this point per the exception clause below).
   Fixed window's `rateLimiter.ts` is kept as-is, not deleted; the exercise swaps which

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Redis Lesson 5 — Token Bucket</title>
+<link rel="stylesheet" href="../../assets/style.css">
+<script src="../../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>Redis Lesson 5: Token Bucket</h1>
+<p class="subtitle">Sliding-window smoothness without a per-request log — a bucket that refills at a steady rate instead of counting the past</p>
+
+<h2>Where you are</h2>
+<p>
+Lesson 4's sliding-window limiter fixed the boundary-burst problem, but you also read (and
+now know from having built it) its cost: one ZSET member per request, and a
+remove-add-count round trip on every single call. A client sending steadily for an hour
+means an ever-churning set of timestamps you have to maintain forever. Token bucket gets
+the same "smooth over time, not bursty at boundaries" property, but the entire state per
+client is just <strong>two numbers</strong> — a token count and a timestamp — regardless
+of how many requests that client has ever made.
+</p>
+
+<h2>The concept: a bucket that refills itself</h2>
+<p>
+Picture a bucket that holds at most <code>CAPACITY</code> tokens. It starts full. Every
+request costs one token. Tokens refill continuously at a fixed rate — say, one every 6
+seconds — up to the cap. If the bucket has at least one token when a request arrives, the
+request is allowed and a token is spent; if it's empty, the request is rejected.
+</p>
+<ul>
+<li><strong>No background job refills it.</strong> Nothing runs on a timer adding tokens
+every few seconds. Instead, the bucket is <em>lazily</em> refilled: each time a request
+arrives, the limiter computes how much time has passed since the last time this bucket was
+touched, multiplies by the refill rate, and adds that many tokens (capped at
+<code>CAPACITY</code>) before deciding whether to spend one. The bucket's state is honest
+at the instant it's read, even though nothing updated it while it sat idle.</li>
+<li><strong>State per client: <code>tokens</code> and <code>lastRefillMs</code>.</strong>
+That's the whole thing. A Redis <strong>hash</strong> with those two fields replaces the
+ever-growing ZSET from Lesson 4.</li>
+<li><strong>Bursts are still allowed, on purpose.</strong> A client that's been idle
+arrives with a full bucket and can spend all <code>CAPACITY</code> tokens at once. What
+token bucket prevents is <em>sustained</em> overuse — once the bucket's empty, the only
+way to get more requests through is to wait, at exactly the refill rate. That's different
+from sliding window, which caps every rolling <code>N</code>-second slice equally with no
+burst allowance at all.</li>
+</ul>
+
+<h2>Why this needs a Lua script, not <code>MULTI</code></h2>
+<p>
+Lessons 3 and 4 both used <code>redisClient.multi()</code> — queue up a few commands,
+send them as one round trip, get back an array of results. That works because none of
+those commands needed to look at a value <em>before</em> deciding what the next command
+should be. Token bucket can't do that: you have to <em>read</em> the current tokens and
+timestamp, <em>compute</em> the refill in your application logic, <em>decide</em> whether
+there's a token to spend, and only then <em>write</em> the new state back — and all of
+that has to happen as one atomic unit, or two concurrent requests could both read "1
+token left," both decide to allow themselves, and both write back "0 tokens," letting two
+requests through on a bucket that only had room for one.
+</p>
+<p>
+<code>MULTI</code> can't branch on a value it just read mid-transaction — every command in
+a <code>MULTI</code> block is queued blind before any of them run. What you need is logic
+that reads, computes, and conditionally writes, all atomically. Redis gives you that with
+<strong><code>EVAL</code></strong>: you send it a small Lua script, and Redis runs the
+whole script to completion, uninterrupted, before handling any other client's command.
+The script itself does the read, the refill math, the allow/reject decision, and the
+write — all inside Redis, in one round trip, with no other client's script able to
+interleave.
+</p>
+<div class="callout">
+<strong>This is new, so it's given to you fully worked</strong> (per this track's rule for
+genuinely new mechanisms) — the Lua script below is not blanked. The blanks in this
+exercise are in the TypeScript around it: calling the script and reacting to its result,
+which by now is a pattern you've built twice.
+</div>
+<p class="citation">
+Primary source: <a href="https://redis.io/docs/latest/develop/interact/programmability/eval-intro/">Redis Docs — Scripting with Lua</a>
+for how <code>EVAL</code> guarantees atomic execution; <a href="https://redis.io/glossary/rate-limiting/">Redis Docs — Rate limiting</a>,
+"Token bucket" section, for the algorithm itself.
+</p>
+
+<h2>Check your understanding</h2>
+
+<div class="quiz-q" data-answer="two">
+  <p class="prompt">Q1. Total fields of Redis state this limiter keeps per client, no matter how long that client has been sending requests: ___ (a number).</p>
+  <input type="text" placeholder="a number">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "two"</strong> — <code>tokens</code> and <code>lastRefillMs</code>.
+    Compare to Lesson 4, where the state size grows with request volume (one ZSET member
+    per request within the window).
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="atomic">
+  <p class="prompt">Q2. Two concurrent requests both read "1 token left" and both decide to proceed, and both write back "0 tokens" — letting two requests through where only one token existed. This is exactly the bug that a Lua script prevents by running ___ (one word: the property <code>EVAL</code> gives you that plain reads-then-writes don't).</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "atomic"</strong> (or "atomically") — the whole
+    read-compute-decide-write sequence runs as one uninterruptible unit inside Redis. No
+    other command, from any client, can run in the middle of it.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="multi">
+  <p class="prompt">Q3. Lessons 3 and 4 got away with <code>___()</code> instead of a Lua script because none of their commands needed to branch on a value read earlier in the same transaction — an <code>INCR</code> or a <code>ZADD</code> doesn't care what the count was before it ran.</p>
+  <input type="text" placeholder="one word (a redis client method)">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "multi"</strong> — <code>redisClient.multi()</code> queues commands
+    blind and sends them as one round trip, but nothing in the block can look at another
+    command's result and change course. Token bucket's "read tokens, compute refill,
+    conditionally spend one" can't be expressed that way.
+  </div>
+</div>
+
+<h2>Function signature: <code>redisClient.eval()</code></h2>
+<p>
+Before the exercise blanks it out, here's exactly what this function expects and returns:
+</p>
+<ul>
+<li><strong><code>script</code></strong> (1st argument) — the raw Lua source as a string.
+That's <code>TOKEN_BUCKET_SCRIPT</code> below.</li>
+<li><strong><code>options.keys</code></strong> — a <code>string[]</code>. Each entry
+becomes <code>KEYS[1]</code>, <code>KEYS[2]</code>, … inside the Lua script. Only actual
+Redis key names go here. This script touches exactly one key (the bucket's hash), so
+this array has exactly one element.</li>
+<li><strong><code>options.arguments</code></strong> — a <code>string[]</code>. Each entry
+becomes <code>ARGV[1]</code>, <code>ARGV[2]</code>, … inside Lua. Everything else the
+script needs that <em>isn't</em> itself a Redis key goes here — capacity, refill rate,
+the current timestamp. node-redis requires these to actually be strings, so numbers get
+wrapped in <code>String(...)</code> before being passed.</li>
+<li><strong>Return value</strong> — whatever the Lua script's <code>return</code>
+statement produces, translated through Redis's wire protocol into a JS value. This
+script's last line, <code>return { allowed, tostring(tokens) }</code>, is a Lua table,
+which comes back as a JS <strong>array</strong>: <code>[allowed, tokensString]</code>.
+Lua integers arrive as JS numbers; Lua strings stay strings. TypeScript has no way to
+infer that shape automatically — that's why the call site below casts the result with
+<code>as [number, string]</code>.</li>
+</ul>
+
+<h2>The exercise</h2>
+<p>
+One new file. The Lua script is given in full; the TypeScript around it has blanks where
+you're repeating a pattern from Lessons 3-4.
+</p>
+
+<div class="exercise">
+<h3>1. <span class="file">gateway/src/redis/tokenBucketRateLimiter.ts</span> (new file)</h3>
+<pre><code>import { Request, Response, NextFunction } from 'express';
+import { redisClient } from './client';
+
+const CAPACITY = ___;           // max tokens the bucket can hold (= max burst size)
+const REFILL_PER_SECOND = ___;  // tokens added per second, e.g. 1/6 for one every 6s
+
+// Given in full: reads tokens+timestamp, applies refill, decides allow/reject, writes
+// back — all atomically, in one round trip.
+const TOKEN_BUCKET_SCRIPT = `
+local key = KEYS[1]
+local capacity = tonumber(ARGV[1])
+local refillPerSecond = tonumber(ARGV[2])
+local now = tonumber(ARGV[3])
+
+local bucket = redis.call('HMGET', key, 'tokens', 'ts')
+local tokens = tonumber(bucket[1])
+local lastRefillMs = tonumber(bucket[2])
+
+if tokens == nil then
+  tokens = capacity
+  lastRefillMs = now
+end
+
+local elapsedSeconds = (now - lastRefillMs) / 1000
+tokens = math.min(capacity, tokens + elapsedSeconds * refillPerSecond)
+
+local allowed = 0
+if tokens >= 1 then
+  tokens = tokens - 1
+  allowed = 1
+end
+
+redis.call('HSET', key, 'tokens', tostring(tokens), 'ts', tostring(now))
+redis.call('EXPIRE', key, 3600)
+
+return { allowed, tostring(tokens) }
+`;
+
+export async function tokenBucketRateLimiter(req: Request, res: Response, next: NextFunction) {
+  const key = `rate-limit:orders:bucket:${___}`;  // same client identifier as Lessons 3-4
+  const now = Date.now();
+
+  const [allowed, tokensRemaining] = await redisClient.eval(TOKEN_BUCKET_SCRIPT, {
+    keys: [___],
+    arguments: [String(CAPACITY), String(REFILL_PER_SECOND), String(___)],
+  }) as [number, string];
+
+  if (!allowed) {
+    const tokensNow = Number(tokensRemaining);
+    const secondsUntilOneToken = (1 - tokensNow) / ___;
+    const retryAfterSeconds = Math.ceil(secondsUntilOneToken);
+    res.set('Retry-After', String(retryAfterSeconds));
+    return res.status(___).json({
+      error: 'Too Many Requests',
+      retryAfterSeconds,
+    });
+  }
+
+  ___;  // within limit — let the request continue to the proxy
+}
+</code></pre>
+<p>Notes on the blanks:</p>
+<ul>
+<li><strong><code>keys: [___]</code></strong> is the same <code>key</code> you just built
+above — it's passed separately from <code>arguments</code> because Redis Cluster uses the
+declared <code>KEYS</code> to know which node a script's data lives on. You won't hit that
+in this single-node setup, but the two-array shape (<code>keys</code> vs.
+<code>arguments</code>) is how <code>EVAL</code> always works, cluster or not.</li>
+<li><strong>The third argument</strong> is what the script calls <code>now</code> inside
+Lua — it needs the same JS timestamp you already computed for <code>const now</code>.</li>
+<li><strong><code>secondsUntilOneToken</code></strong>'s divisor is the same refill-rate
+constant used inside the Lua script — how long until enough tokens accumulate for exactly
+one more request.</li>
+</ul>
+</div>
+
+<div class="exercise">
+<h3>2. <span class="file">gateway/src/index.ts</span> (swap the mounted limiter)</h3>
+<p>
+Same move as Lesson 4 — leave <code>rateLimiter.ts</code> and
+<code>slidingWindowRateLimiter.ts</code> exactly as they are, just change which one guards
+the route:
+</p>
+<pre><code>import { ___ } from "./redis/tokenBucketRateLimiter";
+// import { slidingWindowRateLimiter } from "./redis/slidingWindowRateLimiter";  // Lesson 4 — swapped out, not deleted
+// import { fixedWindowRateLimiter } from "./redis/rateLimiter";  // Lesson 3 — swapped out, not deleted
+
+app.use("/api/v1/orders", ___);
+</code></pre>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+  <li>Restart <code>gateway</code>.</li>
+  <li>Send <code>CAPACITY</code> requests to <code>POST http://localhost:3000/api/v1/orders</code>
+    back-to-back. All should succeed — that's the burst allowance. The next one should
+    <code>429</code> with a <code>Retry-After</code> header.</li>
+  <li>Wait roughly <code>1 / REFILL_PER_SECOND</code> seconds and send one more request.
+    It should succeed — confirm you're not waiting for a full window reset the way Lesson
+    3's fixed window would have forced you to, just for one token's worth of time.</li>
+  <li>Inspect the hash directly: <code>redis-cli HGETALL "rate-limit:orders:bucket:&lt;your-ip&gt;"</code>
+    (from Lesson 1) and confirm <code>tokens</code> and <code>ts</code> are the only two
+    fields, and that <code>tokens</code> moves toward <code>CAPACITY</code> the longer you
+    wait between requests.</li>
+</ol>
+
+<div class="win">
+Three rate limiters now exist side by side in <code>gateway/src/redis/</code> — fixed
+window, sliding window, and token bucket — each solving the same problem with a different
+storage shape and a different tradeoff. You can point at any one of them and explain what
+it costs and what it buys, because you built all three yourself.
+</div>
+
+<h2>Next up</h2>
+<p>
+This closes out the rate-limiting arc from the Redis mission. Per
+<a href="../MISSION.md">MISSION.md</a>'s next phase: Redis as an application-level cache
+in <code>inventory-service</code> and <code>order-service</code> — deliberately sequenced
+after this so the client-wiring and connection-handling comfort carries over directly.
+</p>
+
+<div class="nav">
+  <a href="0004-sliding-window-sorted-sets.html">&larr; Lesson 4</a> ·
+  <a href="../MISSION.md">Redis Mission</a> ·
+  <a href="0006-limiter-factory.html">Lesson 6 &rarr;</a>
+</div>
+
+</body>
+</html>
