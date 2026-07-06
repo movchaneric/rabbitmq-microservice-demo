@@ -4,13 +4,21 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 import { connectRedis, disconnectRedis, redisClient } from "./redis";
 import { fixedWindowRateLimiter } from "./redis/rateLimiter";
 import { slidingWindowRateLimiter } from "./redis/slidingWindowRateLimiter";
-import { tokenBucketRateLimiter } from "./redis/tokenBucketRateLimiter";
+import { createTokenBucketLimiter } from "./redis/tokenBucketRateLimiter";
+// import { tokenBucketRateLimiter } from "./redis/tokenBucketRateLimiter";
 
 const app = express();
 
 // app.use("/api/v1/orders", fixedWindowRateLimiter);
 // app.use("/api/v1/orders", slidingWindowRateLimiter);
-app.use("/api/v1/orders", tokenBucketRateLimiter);
+app.use(
+  "/api/v1/orders",
+  createTokenBucketLimiter({
+    scope: "order",
+    capacity: 5,
+    refillPerSecond: 1 / 6,
+  }),
+);
 app.use(
   createProxyMiddleware({
     target: process.env.ORDER_SERVICE_URL,
@@ -20,6 +28,14 @@ app.use(
   }),
 );
 
+app.use(
+  "/api/v1/inventory",
+  createTokenBucketLimiter({
+    scope: "inventory",
+    capacity: 20,
+    refillPerSecond: 2,
+  }),
+);
 app.use(
   createProxyMiddleware({
     target: process.env.INVENTORY_SERVICE_URL,
