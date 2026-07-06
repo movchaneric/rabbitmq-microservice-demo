@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Redis Lesson 1 — What Redis Actually Is</title>
+<link rel="stylesheet" href="../../assets/style.css">
+<script src="../../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>Redis Lesson 1: What Redis Actually Is</h1>
+<p class="subtitle">Restarted from fundamentals — no TypeScript in this lesson at all</p>
+
+<h2>Where you are</h2>
+<p>
+Restarting this track from the very beginning. The client-wiring exercise (now
+Lesson 2) surfaced that the mental model of "what is a Redis connection" wasn't solid
+yet — the specific trip-up was treating a client as something you get back from calling
+a function, rather than a single value your whole app shares. That's a fundamentals gap,
+not a typing mistake, so this lesson goes back to basics: what Redis <em>is</em>, using
+nothing but <code>redis-cli</code> typed straight into a terminal. No files, no exports,
+no TypeScript — just you and the server talking directly.
+</p>
+
+<h2>The concept: what Redis is</h2>
+<p>
+Redis is an <strong>in-memory data structure store</strong>. Contrast that with something
+like Postgres: Postgres keeps data on disk, understands tables and SQL joins, and is built
+to safely hold data far bigger than RAM. Redis keeps (almost) everything in RAM, has no
+query language and no joins, and in exchange is extremely fast — a single lookup is a
+hash-table access in memory, not a disk read.
+</p>
+<p>
+Redis is also its own separate running program (a <strong>server</strong>), not a library
+you import that does the work in-process. That server sits there listening on a TCP port
+(default <code>6379</code>). Anything that wants to talk to it — <code>redis-cli</code>,
+your Node app, another language entirely — is a <strong>client</strong>: a separate
+program that opens a network connection to the server and sends it commands, one at a
+time, getting a reply back for each.
+</p>
+<div class="callout">
+<strong>Hold onto this distinction — it's exactly what tripped up Lesson 2:</strong>
+"building a client object" and "connecting to the server" are two different steps. The
+first is just constructing a value in your program (instant, no network involved yet).
+The second is real network I/O — opening a TCP connection to wherever the Redis server
+actually lives — which takes time and can fail, so it has to be a deliberate, awaited
+step. Every Redis client library keeps these separate for that reason.
+</div>
+<p>
+Data in Redis is organized as <strong>keys mapped to values</strong>, and the value at a
+key can be one of a handful of built-in shapes. You don't need to use all of these yet —
+just recognize the names, since different lessons ahead will reach for different ones:
+</p>
+<ul>
+<li><strong>String</strong> — a single value (text, or a number Redis will let you
+increment). What we've used so far, and what rate limiting's first algorithm (fixed
+window) will use as a counter.</li>
+<li><strong>Hash</strong> — a key holding multiple field→value pairs, like a small
+object.</li>
+<li><strong>List</strong> — an ordered sequence of values.</li>
+<li><strong>Set</strong> — an unordered collection with no duplicates.</li>
+<li><strong>Sorted Set</strong> — like a Set, but every member has a score it's ordered
+by. Sliding-window rate limiting (a later lesson) uses this.</li>
+</ul>
+<p>
+One more fundamental: any key can have a <strong>TTL</strong> (time-to-live) attached.
+Without one, a key lives forever — Redis never deletes it on its own. With one, Redis
+deletes it automatically the moment the TTL hits zero, with no application code involved.
+That's the entire mechanism a rate limiter's "reset after N seconds" behavior is built
+from.
+</p>
+<p class="citation">
+Primary source: <a href="https://redis.io/docs/latest/develop/data-types/">Redis Docs — Data types</a>
+and <a href="https://redis.io/docs/latest/develop/reference/protocol-spec/">Redis Docs — Protocol spec (RESP)</a>
+for what "client talks to server over a connection" actually means at the wire level (skim, don't study).
+</p>
+
+<h2>Check your understanding</h2>
+
+<div class="quiz-q" data-answer="in memory">
+  <p class="prompt">Q1. Is Redis fundamentally a disk-based database like Postgres, or an ___ data structure store?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "in memory"</strong> — it keeps data in RAM, which is what makes it fast and what makes durability an explicit design question rather than a given.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="separate step">
+  <p class="prompt">Q2. Constructing a client object in your program and actually opening a network connection to the Redis server — are these the same step, or a ___ ___?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "separate step"</strong> — building the client is instant and local; connecting is real network I/O and must be awaited on its own.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="forever">
+  <p class="prompt">Q3. If you never attach a TTL to a key, how long does it live?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "forever"</strong> — Redis only removes a key on its own if it has an expiry set. No TTL means no automatic cleanup, ever.
+  </div>
+</div>
+
+<h2>The exercise: redis-cli, no code</h2>
+<p>
+Redis should already be running from the earlier <code>docker-compose.yml</code> work.
+Get a shell talking to it — either <code>redis-cli -h localhost -p 6379</code> if you have
+<code>redis-cli</code> installed locally, or <code>docker exec -it &lt;redis-container-name&gt; redis-cli</code>
+to run it from inside the container. Then, by hand, one at a time:
+</p>
+<div class="exercise">
+<h3>Run these and read every reply before moving to the next one</h3>
+<pre><code>SET greeting hello
+GET greeting
+TYPE greeting
+EXISTS greeting
+EXISTS nope
+DEL greeting
+EXISTS greeting
+
+SET counter 1
+INCR counter
+INCR counter
+TTL counter
+
+EXPIRE counter 20
+TTL counter
+</code></pre>
+<p class="ask-agent">After running the <code>EXPIRE counter 20</code> block, wait past 20
+seconds and run <code>GET counter</code> / <code>TTL counter</code> again yourself —
+watch it actually disappear rather than just trusting the docs. Ask me if any single
+reply surprises you; that's more useful than skimming past it.</p>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+  <li>Every command above returned <em>something</em> you can explain — including why
+    <code>EXISTS nope</code> returns <code>0</code> and why <code>TTL greeting</code>
+    (before you set an expiry) would have returned <code>-1</code>.</li>
+  <li>You watched <code>counter</code> vanish on its own once its TTL hit zero — no code
+    ran to delete it.</li>
+</ol>
+
+<div class="win">
+You now have a working, hands-typed mental model of Redis as a server you talk to over a
+connection, keys mapped to typed values, and TTL-driven expiry — entirely independent of
+any TypeScript client library. That separation is exactly what Lesson 2 needs to land
+correctly this time.
+</div>
+
+<h2>Next up</h2>
+<p>Redis Lesson 2 picks up <code>gateway/src/redis/client.ts</code> again, this time
+leading with the client-vs-connection distinction from this lesson before touching any
+code. Same destination as before (a shared client the whole gateway can use, plus a
+throwaway verification route) — just built on steadier ground.</p>
+
+<div class="nav">
+  <a href="0002-client-wiring.html">Lesson 2</a> ·
+  <a href="../MISSION.md">Redis Mission</a>
+</div>
+
+</body>
+</html>

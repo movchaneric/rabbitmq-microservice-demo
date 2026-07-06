@@ -18,3 +18,19 @@ token bucket / leaky bucket) is new even if basic Redis commands aren't.
   lesson, since "OK understanding" hasn't been verified against this specific stack
   (TypeScript gateway service, `redis` npm package) yet.
 - See [[MISSION]] for how this shapes the lesson order.
+
+## Update — 2026-07-05: baseline was optimistic
+The client-wiring exercise (`gateway/src/redis/client.ts`) surfaced a real gap, not just
+a TypeScript slip: `redisClient` was written as a factory function that built a client and
+threw the result away each call, then `.connect()` was called on the function itself
+rather than on a client instance. That's a sign the "OK understanding" self-assessment
+didn't include the fundamental model of Redis as a separate server your program opens one
+shared connection to — "build the client" and "connect the client" being distinct steps
+wasn't intuitive yet.
+
+**Revised implication:** don't skip straight to client-wiring even for someone who knows
+basic commands. A short fundamentals lesson (what Redis is, `redis-cli` only, no code) now
+comes first — see the restarted [[MISSION]] lesson order. Basic commands
+(`GET`/`SET`/`INCR`/`EXPIRE`/`TTL`) genuinely were already familiar; what was missing was
+the client/connection model, which is a different kind of gap than "doesn't know the
+commands."
