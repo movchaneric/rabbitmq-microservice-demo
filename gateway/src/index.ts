@@ -1,10 +1,12 @@
 import "dotenv/config";
-import express from "express";
+import express, { NextFunction, Request, Response } from "express";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { connectRedis, disconnectRedis, redisClient } from "./redis";
+import { fixedWindowRateLimiter } from "./redis/rateLimiter";
 
 const app = express();
 
+app.use("/api/v1/orders", fixedWindowRateLimiter);
 app.use(
   createProxyMiddleware({
     target: process.env.ORDER_SERVICE_URL,
@@ -44,11 +46,12 @@ app.use(
 app.get("/api/v1/_debug/redis-demo", async (req, res) => {
   const [_, count] = await redisClient
     .multi()
-    .set("demo:hits", "0", { EX: 30, NX: true })
+    .set("demo:hits", "0", { EX: 30, NX: true }) // set demp:hits back to 0 and ex 30 if not exists(NX)
     .incr("demo:hits")
     .exec();
 
   const ttl = await redisClient.ttl("demo:hits");
+
   res.json({ count, ttlSecondsRemaining: ttl });
 });
 
