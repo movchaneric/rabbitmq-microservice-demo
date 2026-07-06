@@ -64,6 +64,11 @@ reaches `order-service` or hits RabbitMQ at all.
   explicit invalidation on write), and cache-aside vs. another pattern.
 
 ## Revision history
+- **2026-07-06** — Added Lesson 4 (sliding window via sorted sets), exercise with blanks
+  (not full code — fundamentals are solid by this point per the exception clause below).
+  Fixed window's `rateLimiter.ts` is kept as-is, not deleted; the exercise swaps which
+  limiter is mounted in `gateway/src/index.ts` so both stay in the repo as comparable
+  working code. Lesson 5 (token bucket) is next.
 - **2026-07-05** — Restarted the lesson sequence from Redis fundamentals. What happened:
   the original Lesson 1 (client wiring) had the user write `gateway/src/redis/client.ts`,
   and they got stuck in a way that wasn't really a TypeScript slip — `redisClient` was

@@ -3,10 +3,11 @@ import express, { NextFunction, Request, Response } from "express";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { connectRedis, disconnectRedis, redisClient } from "./redis";
 import { fixedWindowRateLimiter } from "./redis/rateLimiter";
+import { slidingWindowRateLimiter } from "./redis/slidingWindowRateLimiter";
 
 const app = express();
 
-app.use("/api/v1/orders", fixedWindowRateLimiter);
+app.use("/api/v1/orders", slidingWindowRateLimiter);
 app.use(
   createProxyMiddleware({
     target: process.env.ORDER_SERVICE_URL,
