@@ -73,14 +73,21 @@ reaches `order-service` or hits RabbitMQ at all.
   optional follow-up exercise (same transformation, not required to move on).
 
 ## Next phase (after rate limiting)
-- **Redis as an application-level cache in `inventory-service` and `order-service`** —
-  planned, not started. Deliberately sequenced after rate limiting so the client
-  wiring, connection handling, and basic-command comfort from this phase carry over
-  directly instead of being re-derived. Will need its own design pass when it starts:
-  what gets cached (e.g. inventory stock levels?), invalidation strategy (TTL-only vs.
-  explicit invalidation on write), and cache-aside vs. another pattern.
+- **Redis as an application-level cache — started as Lesson 7.** Design pass done:
+  caches `inventory-service`'s stock-level read (`getStock()`), using the cache-aside
+  pattern, with TTL-only invalidation (10s) — no write-path changes, since nothing in
+  this codebase currently mutates `stock` on order placement anyway. `order-service`
+  getting the same treatment is a possible next step, not yet decided.
 
 ## Revision history
+- **2026-07-06** — Added Lesson 7 (cache-aside for inventory stock), opening the
+  caching phase. Design decisions made directly with the user: cache target is
+  `inventory-service`'s stock read, pattern is cache-aside, invalidation is TTL-only
+  (10s, no write-path coupling). New service (`inventory-service`) gets its own
+  `redis/client.ts` (same construct-vs-connect wiring as gateway's Lesson 2, given as
+  full code since it's a mechanical repeat); the new mechanism (cache-aside itself, plus
+  first-time plain `GET`/`SET`-with-`EX` and the JSON serialization boundary) is left
+  blanked, per house style once fundamentals are solid.
 - **2026-07-06** — Added Lesson 6 (limiter factory / closures), addressing the
   hardcoded-`orders`-key open design question immediately rather than deferring it —
   user asked to resolve it right after Lesson 5, before starting the caching phase.
