@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Reference — Anatomy of a GitHub Actions Workflow</title>
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+<h1>Reference: Anatomy of a GitHub Actions Workflow</h1>
+<p class="subtitle">Quick-reference cheat sheet — not a lesson, see <a href="../lessons/0001-ci-fundamentals-first-workflow.html">Lesson 1</a> for that</p>
+
+<h2>The file</h2>
+<p>
+Lives at <code>.github/workflows/&lt;anything&gt;.yml</code>, anywhere in the repo the
+workflow applies to. GitHub scans every file in that folder — the filename itself
+doesn't matter to GitHub, only to humans reading the Actions tab.
+</p>
+
+<h2>Annotated skeleton</h2>
+<pre><code>name: order-service CI                    # label shown in the Actions tab
+
+on:                                        # the EVENT(s) that start a run
+  push:
+    branches: [main]
+    paths: ["order-service/**"]            # path filter — skip if nothing here changed
+  pull_request:
+    paths: ["order-service/**"]
+
+jobs:                                      # one workflow -&gt; one or more JOBS
+  test:                                    # job id (your name for it)
+    runs-on: ubuntu-latest                 # the RUNNER — a fresh VM, thrown away after
+    defaults:
+      run:
+        working-directory: order-service   # every `run:` step below executes from here
+
+    steps:                                 # STEPS run in order, same machine, same filesystem
+      - uses: actions/checkout@v4          # ACTION: reusable, packaged step someone else wrote
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci                        # plain shell command instead of an action
+      - run: npm test
+</code></pre>
+
+<h2>Vocabulary map</h2>
+<table>
+<tr><th>Term</th><th>Where it appears above</th><th>One-line meaning</th></tr>
+<tr><td>Workflow</td><td>the whole file</td><td>An automated process triggered by an event</td></tr>
+<tr><td>Event</td><td><code>on:</code></td><td>What starts the run — push, PR, schedule, manual</td></tr>
+<tr><td>Job</td><td><code>jobs.test</code></td><td>A group of steps sharing one runner</td></tr>
+<tr><td>Runner</td><td><code>runs-on</code></td><td>The actual fresh VM the job executes on</td></tr>
+<tr><td>Step</td><td>each list item under <code>steps</code></td><td>One shell command or one action call</td></tr>
+<tr><td>Action</td><td><code>uses: actions/checkout@v4</code></td><td>A packaged, reusable step</td></tr>
+<tr><td>Path filter</td><td><code>paths: [...]</code></td><td>Skip the workflow unless matching files changed</td></tr>
+</table>
+
+<h2>Two events you'll use constantly</h2>
+<table>
+<tr><th>Event</th><th>Fires on</th><th>Typical use</th></tr>
+<tr><td><code>push</code></td><td>A commit lands on a branch (e.g. after a PR merges to <code>main</code>)</td><td>CI on main, or trigger CD</td></tr>
+<tr><td><code>pull_request</code></td><td>A PR is opened/updated</td><td>CI gate before merge — this is what actually blocks a bad merge</td></tr>
+</table>
+
+<h2>Job dependencies</h2>
+<pre><code>jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps: [ ... ]
+
+  build:
+    needs: test              # waits for `test` to succeed before starting
+    runs-on: ubuntu-latest
+    steps: [ ... ]
+</code></pre>
+<p>
+Without <code>needs:</code>, jobs in the same workflow run in parallel by default — fine
+for independent work, wrong if <code>build</code> should only happen after <code>test</code>
+actually passes.
+</p>
+
+<h2>Secrets, at a glance</h2>
+<pre><code>steps:
+  - run: curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+</code></pre>
+<p>
+Set once in <strong>Settings &rarr; Secrets and variables &rarr; Actions</strong> (repo-level)
+or on a specific <strong>Environment</strong> (scoped further, can require reviewers).
+Never appears in the YAML itself, and GitHub automatically masks a secret's value in
+logs if it's ever echoed.
+</p>
+
+<h2>Primary sources</h2>
+<ul>
+<li><a href="https://docs.github.com/en/actions/get-started/understand-github-actions">GitHub Docs — Understanding GitHub Actions</a></li>
+<li><a href="https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions">GitHub Docs — Workflow syntax for GitHub Actions</a> (the full key reference)</li>
+</ul>
+
+<div class="nav">
+<a href="../lessons/0001-ci-fundamentals-first-workflow.html">&larr; Back to Lesson 1</a> ·
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a>
+</div>
+
+</body>
+</html>
