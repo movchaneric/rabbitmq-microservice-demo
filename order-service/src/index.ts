@@ -5,6 +5,11 @@ import { connect, getChannel } from "./rabbitmq";
 import { addOrder, getOrders } from "./data";
 import { log } from "./logger";
 import { Order } from "./types";
+import { connectRedis } from "./redis/client";
+import {
+  getCachedOrders,
+  invalidateOrdersCache,
+} from "./redis/getCachedOrders";
 
 const app = express();
 app.use(express.json());
@@ -30,29 +35,18 @@ app.post("/orders", (req: Request, res: Response) => {
 
   const payload = Buffer.from(JSON.stringify(order));
 
-  // publish() on a ConfirmChannel can fail two different ways:
-  //  1. Async — the callback's `err` fires because RabbitMQ nacked/never
-  //     confirmed the message.
-  //  2. Sync — publish() throws immediately (e.g. IllegalOperationError) if
-  //     the underlying connection is already dead when this runs.
-  // Both need to produce the same clean JSON error instead of an
-  // Express-default stack-trace page, hence the try/catch around a call
-  // that also takes a callback.
-  //
-  // addOrder() only runs in the success branch — local state should only
-  // ever reflect orders RabbitMQ actually confirmed, not ones we merely
-  // attempted to publish.
   try {
     channel.publish(
       "ex.orders",
       "order.placed",
       payload,
       { persistent: true },
-      (err) => {
+      async (err) => {
         if (err) {
           return res.status(500).json({ error: "error publishing message" });
         } else {
           addOrder(order);
+          await invalidateOrdersCache();
           console.log("ORDER PLACED", order.orderId);
           return res.status(201).json(order);
         }
@@ -66,12 +60,13 @@ app.post("/orders", (req: Request, res: Response) => {
   }
 });
 
-app.get("/orders", (_req: Request, res: Response) => {
-  res.json(getOrders());
+app.get("/orders", async (_req: Request, res: Response) => {
+  res.json(await getCachedOrders());
 });
 
 async function start(): Promise<void> {
   await connect();
+  await connectRedis();
   app.listen(process.env.PORT, () => {
     log(`Listening on port ${process.env.PORT}`);
   });

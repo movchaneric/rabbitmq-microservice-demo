@@ -73,15 +73,37 @@ reaches `order-service` or hits RabbitMQ at all.
   optional follow-up exercise (same transformation, not required to move on).
 
 ## Next phase (after rate limiting)
-- **Redis as an application-level cache — started as Lesson 7, hardened in Lesson 8.**
-  Design pass done: caches `inventory-service`'s stock-level read (`getStock()`), using
-  the cache-aside pattern, with TTL-only invalidation (10s) — no write-path changes,
-  since nothing in this codebase currently mutates `stock` on order placement anyway.
-  Lesson 8 closed the cache-stampede gap cache-aside leaves open (concurrent misses all
-  recomputing independently) with a `SET ... NX` + `PX` distributed lock. `order-service`
-  getting the same treatment is a possible next step, not yet decided.
+- **Redis as an application-level cache — started as Lesson 7, hardened in Lesson 8,
+  extended to a second service + write-path invalidation in Lesson 9.** Design pass
+  done: caches `inventory-service`'s stock-level read (`getStock()`), using the
+  cache-aside pattern, with TTL-only invalidation (10s) — justified there specifically
+  because nothing mutates `stock` on order placement. Lesson 8 closed the
+  cache-stampede gap cache-aside leaves open (concurrent misses all recomputing
+  independently) with a `SET ... NX` + `PX` distributed lock. `order-service` got the
+  same cache-aside + lock treatment (built by the user directly mirroring Lessons 7-8,
+  no separate lesson needed for that part since it was a straight port), then Lesson 9
+  added active write-path invalidation for it specifically, since — unlike
+  inventory — `addOrder()` actually mutates the cached data on every write, so
+  TTL-only would have left new orders invisible for up to 10s.
 
 ## Revision history
+- **2026-07-08** — Added Lesson 9 (write-path cache invalidation), covering
+  `order-service`'s `GET /orders` cache. Unlike inventory-service, `addOrder()` mutates
+  the cached data on every write, so Lesson 7's TTL-only justification doesn't transfer
+  — left as-is, a new order would be invisible from `GET /orders` for up to 10s.
+  Fix: `invalidateOrdersCache()` (a `del(CACHE_KEY)`, reusing the exact command Lesson 8
+  used for lock release) called from the `POST /orders` success branch in
+  `index.ts`, right after `addOrder(order)` — not from inside `data.ts`, which stays
+  cache-unaware as the source of truth. Framed explicitly as the general
+  lazy-TTL-vs-active-invalidation trade-off (bounded staleness + zero coupling vs.
+  guaranteed freshness + write-path coupling), with a callout on why cache invalidation
+  has a reputation as a hard problem: not the mechanism, but making sure every write
+  path that touches cached data actually calls it. `order-service`'s
+  `redis/getCachedOrders.ts` (cache-aside + Lesson 8's lock, ported from
+  inventory-service by the user without a dedicated lesson) got two review passes
+  first — an inventory-service port that initially had the lock's `PX`/`EX` TTL swapped
+  with the cache entry's `EX`/`PX` TTL (twice, in different ways, before landing
+  correctly), and an order-service port that got both right on the first attempt.
 - **2026-07-08** — Added Lesson 8 (single-flight locking / cache stampede prevention),
   closing the gap Lesson 7 left open: concurrent misses on the same key all recompute
   independently since cache-aside has no coordination between callers. Fix uses
@@ -93,7 +115,18 @@ reaches `order-service` or hits RabbitMQ at all.
   correct version would use node-redis's `delEx` compare-and-delete with a per-request
   lock value. Chosen over the two candidates Lesson 7 left open (order-service
   cache-aside, Lesson 6 factory refactor) at the user's request, right after discussing
-  why cache stampedes happen.
+  why cache stampedes happen. **Verified working** by forcing a miss
+  (`redis-cli DEL inventory:stock` or waiting out the TTL) then firing concurrent
+  requests from a shell so they actually overlap in time — a Postman "click send
+  repeatedly" test doesn't work here since each click waits for the prior response,
+  so there's never real overlap for the lock to arbitrate:
+  ```
+  for i in 1 2 3 4 5; do curl -s http://localhost:3002/inventory & done; wait
+  ```
+  Result matched the design exactly: all 5 logged `[cache]: miss`, exactly one won the
+  lock and logged `[lock] acquired, computing fresh value`, the other 4 logged
+  `[lock] held by another request, waiting...` then `[cache] hit after wait` — one
+  recompute instead of five.
 - **2026-07-06** — Added Lesson 7 (cache-aside for inventory stock), opening the
   caching phase. Design decisions made directly with the user: cache target is
   `inventory-service`'s stock read, pattern is cache-aside, invalidation is TTL-only
