@@ -79,7 +79,7 @@ async function start() {
   await connectRedis();
 
   app.listen(process.env.PORT, () => {
-    console.log(`[gateway] Listening on port ${process.env.PORT}`);
+    console.log(`[gateway-serivce] Listening on port ${process.env.PORT}`);
   });
 }
 
