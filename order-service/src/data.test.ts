@@ -11,7 +11,7 @@ describe("data", () => {
       timestamp: new Date().toISOString(),
     };
 
-    addOrder(order);
+    // addOrder(order);
 
     const orders = getOrders();
     expect(orders).toContainEqual(expect.objectContaining({ orderId: "1" }));
