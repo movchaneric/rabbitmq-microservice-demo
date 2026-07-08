@@ -73,13 +73,27 @@ reaches `order-service` or hits RabbitMQ at all.
   optional follow-up exercise (same transformation, not required to move on).
 
 ## Next phase (after rate limiting)
-- **Redis as an application-level cache — started as Lesson 7.** Design pass done:
-  caches `inventory-service`'s stock-level read (`getStock()`), using the cache-aside
-  pattern, with TTL-only invalidation (10s) — no write-path changes, since nothing in
-  this codebase currently mutates `stock` on order placement anyway. `order-service`
+- **Redis as an application-level cache — started as Lesson 7, hardened in Lesson 8.**
+  Design pass done: caches `inventory-service`'s stock-level read (`getStock()`), using
+  the cache-aside pattern, with TTL-only invalidation (10s) — no write-path changes,
+  since nothing in this codebase currently mutates `stock` on order placement anyway.
+  Lesson 8 closed the cache-stampede gap cache-aside leaves open (concurrent misses all
+  recomputing independently) with a `SET ... NX` + `PX` distributed lock. `order-service`
   getting the same treatment is a possible next step, not yet decided.
 
 ## Revision history
+- **2026-07-08** — Added Lesson 8 (single-flight locking / cache stampede prevention),
+  closing the gap Lesson 7 left open: concurrent misses on the same key all recompute
+  independently since cache-aside has no coordination between callers. Fix uses
+  `SET ... NX` with a `PX` TTL as a distributed lock (first request to miss claims the
+  recompute, others poll the cache and fall back to a direct, uncached read if the lock
+  holder is unexpectedly slow), released via `del()` once the fresh value is cached.
+  Flagged, not fixed, as a known gap: the unconditional `del()` can in theory delete a
+  lock acquired by a different request if this one's TTL expired first — the fully
+  correct version would use node-redis's `delEx` compare-and-delete with a per-request
+  lock value. Chosen over the two candidates Lesson 7 left open (order-service
+  cache-aside, Lesson 6 factory refactor) at the user's request, right after discussing
+  why cache stampedes happen.
 - **2026-07-06** — Added Lesson 7 (cache-aside for inventory stock), opening the
   caching phase. Design decisions made directly with the user: cache target is
   `inventory-service`'s stock read, pattern is cache-aside, invalidation is TTL-only
