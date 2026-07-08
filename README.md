@@ -65,9 +65,61 @@ flowchart TD
 | 6 | [Clustering & Quorum Queues](rabbitMQ_learning/lessons/0006-clustering-quorum-queues.html) | Done |
 | 7 | [HAProxy Load Balancer](rabbitMQ_learning/lessons/0007-haproxy-load-balancer.html) | Done |
 
+## Redis learning journey
+
+A second, separate track (own folder, own lesson numbering) started once the RabbitMQ
+arc above wrapped up — rate limiting first, then caching, both against `redis`. Full
+write-up: **[redis_learning/JOURNEY.md](redis_learning/JOURNEY.md)**.
+
+```mermaid
+flowchart TD
+    B["Baseline\nSelf-reported 'OK understanding'\nof Redis, unverified"]
+    A0["Attempt: client wiring\nredisClient written as a factory\nfunction — connect()/build() confused"]
+
+    L1["Lesson 1\nRedis Fundamentals (redis-cli only)"]
+    L2["Lesson 2\nClient Wiring (gateway)"]
+    L3["Lesson 3\nFixed-Window Rate Limiter"]
+    L4["Lesson 4\nSliding-Window Rate Limiter\n(sorted sets)"]
+    L5["Lesson 5\nToken Bucket\n(Lua EVAL script)"]
+    L6["Lesson 6\nLimiter Factory\n(closures)"]
+    L7["Lesson 7\nCache-Aside\n(inventory-service)"]
+    L8["Lesson 8\nSingle-Flight Locking\n(cache stampede)"]
+    L9["Lesson 9\nWrite-Path Invalidation\n(order-service)"]
+
+    B --> A0
+    A0 -- "construct-vs-connect model\nwasn't actually solid" --> L1
+    L1 -- "fundamentals-only, no service\nto wire yet" --> L2
+    L2 -- "debug route does the mechanics\nbut never rejects anything" --> L3
+    L3 -- "client can send up to 2x MAX\nby timing a window boundary" --> L4
+    L4 -- "one ZSET member per request —\never-churning state for steady traffic" --> L5
+    L5 -- "3 limiters, each hardcodes its\nroute name + tuning constants" --> L6
+    L6 -- "rate-limiting arc closed;\nMISSION's next phase pivots to caching" --> L7
+    L7 -- "concurrent misses on the same key\nall recompute independently" --> L8
+    L8 -- "ported to order-service — but\naddOrder() actually mutates the\ncached data, unlike inventory" --> L9
+
+    classDef done fill:#1f6f43,stroke:#0d3d24,color:#fff
+    classDef base fill:#3a3f4b,stroke:#1c1f26,color:#fff
+    class B,A0 base
+    class L1,L2,L3,L4,L5,L6,L7,L8,L9 done
+```
+
+| Lesson | Topic | Status |
+|---|---|---|
+| 1 | [Redis Fundamentals](redis_learning/lessons/0001-what-redis-is.html) | Done |
+| 2 | [Client Wiring](redis_learning/lessons/0002-client-wiring.html) | Done |
+| 3 | [Fixed-Window Rate Limiter](redis_learning/lessons/0003-fixed-window-rate-limiter.html) | Done |
+| 4 | [Sliding-Window Rate Limiter](redis_learning/lessons/0004-sliding-window-sorted-sets.html) | Done |
+| 5 | [Token Bucket](redis_learning/lessons/0005-token-bucket.html) | Done |
+| 6 | [Limiter Factory](redis_learning/lessons/0006-limiter-factory.html) | Done |
+| 7 | [Cache-Aside (inventory-service)](redis_learning/lessons/0007-cache-aside-inventory.html) | Done |
+| 8 | [Single-Flight Locking](redis_learning/lessons/0008-single-flight-lock.html) | Done |
+| 9 | [Write-Path Invalidation (order-service)](redis_learning/lessons/0009-write-path-invalidation.html) | Done |
+
 ## Other docs
 
-- [MISSION.md](rabbitMQ_learning/MISSION.md) — goal, success criteria, scope
+- [MISSION.md](rabbitMQ_learning/MISSION.md) — RabbitMQ goal, success criteria, scope
+- [redis_learning/MISSION.md](redis_learning/MISSION.md) — Redis goal, success criteria, scope
+- [redis_learning/reference/data-types.md](redis_learning/reference/data-types.md) — Redis data types quick reference
 - [ROUTES.md](ROUTES.md) — API routes
 - [GLOSSARY.md](rabbitMQ_learning/GLOSSARY.md) — terms introduced along the way
 - [RESOURCES.md](rabbitMQ_learning/RESOURCES.md) — primary sources per lesson
