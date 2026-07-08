@@ -86,6 +86,12 @@ order, for real.
    notifications, branch protection requiring CI to pass before merge.
 
 ## Revision history
+- **2026-07-08** — Lesson 1 (CI fundamentals) completed and verified live: a real
+  Vitest test for `order-service/src/data.ts`, a path-filtered CI workflow, and the
+  full red/green/red/green + path-filter-skip verification loop, including two
+  genuine (unplanned) CI failures — `npm ci` strictness vs. `npm install`, and a
+  macOS/Linux lock-file mismatch — both debugged and fixed for real. See
+  [[0002-npm-ci-strictness-and-path-filters-verified-live]].
 - **2026-07-08** — Track created. Deployment target decided (Render free tier +
   CloudAMQP free RabbitMQ), from-scratch teaching depth confirmed directly by the user
   despite some prior exposure to the topic.

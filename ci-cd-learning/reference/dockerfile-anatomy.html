@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Reference — Anatomy of a Multi-Stage Dockerfile</title>
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+
+<h1>Reference: Anatomy of a Multi-Stage Dockerfile</h1>
+<p class="subtitle">Quick-reference cheat sheet — see <a href="../lessons/0002-docker-multistage-build.html">Lesson 2</a> for the taught version</p>
+
+<h2>Annotated skeleton</h2>
+<pre><code># ---- builder stage ----
+FROM node:20-alpine AS builder     # base image; "AS builder" names this stage
+WORKDIR /app                       # every instruction below runs from here, inside the image
+
+COPY package*.json ./              # copy ONLY manifest files first
+RUN npm ci                         # install deps — cached as long as package*.json is unchanged
+
+COPY . .                           # now copy the rest of the source
+RUN npm run build                  # compile TypeScript -> dist/ (tsconfig's outDir)
+
+# ---- runtime stage ----
+FROM node:20-alpine                # a FRESH base image — none of the builder's layers carry over
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --omit=dev              # only production deps — no typescript, no ts-node, no vitest
+
+COPY --from=builder /app/dist ./dist   # pull ONLY the compiled output out of the builder stage
+
+EXPOSE 3001                        # documentation only — doesn't publish the port by itself
+CMD ["node", "dist/index.js"]      # plain node, running compiled JS — no ts-node in the final image
+</code></pre>
+
+<h2>Why two stages instead of one</h2>
+<p>
+A single-stage build would need the TypeScript compiler, <code>ts-node</code>, and
+every dev dependency present <em>in the image you ship</em> — none of which the running
+app ever uses. Multi-stage builds let an early stage carry all of that, then throw the
+entire stage away except the one folder (<code>dist/</code>) the final stage actually
+needs. Source:
+<a href="https://docs.docker.com/build/building/multi-stage/">Docker Docs — Multi-stage builds</a>.
+</p>
+
+<h2>Key instructions</h2>
+<table>
+<tr><th>Instruction</th><th>Does</th></tr>
+<tr><td><code>FROM &lt;image&gt; AS &lt;name&gt;</code></td><td>Starts a new stage from a base image; <code>AS name</code> makes it referenceable later</td></tr>
+<tr><td><code>WORKDIR</code></td><td>Sets the working directory <em>inside the image</em> for every instruction after it</td></tr>
+<tr><td><code>COPY &lt;src&gt; &lt;dest&gt;</code></td><td>Copies files from the build context (host) into the image</td></tr>
+<tr><td><code>COPY --from=&lt;stage&gt; &lt;src&gt; &lt;dest&gt;</code></td><td>Copies files from an <em>earlier stage's filesystem</em> instead of the host</td></tr>
+<tr><td><code>RUN</code></td><td>Executes a command while building — its filesystem effects become a layer</td></tr>
+<tr><td><code>EXPOSE</code></td><td>Documents which port the container listens on — you still map it yourself with <code>docker run -p</code></td></tr>
+<tr><td><code>CMD</code></td><td>The default command that runs when a container starts from this image</td></tr>
+</table>
+
+<h2>.dockerignore</h2>
+<p>
+Same idea as <code>.gitignore</code>, but for what Docker is allowed to <code>COPY</code>
+from the build context. At minimum:
+</p>
+<pre><code>node_modules
+.env
+dist
+</code></pre>
+<p>
+Excluding <code>node_modules</code> matters beyond just speed: your host's
+<code>node_modules</code> may contain platform-specific native binaries (macOS) that
+would silently break inside the Linux-based image — the exact class of problem you
+already hit with the CI lock file in Lesson 1, just one layer further down the stack.
+</p>
+
+<h2>Useful build/run commands</h2>
+<pre><code>docker build -t order-service:local .          # build, tag it locally
+docker images order-service:local              # check the actual final size
+docker run --rm -p 3001:3001 \
+  --network &lt;compose-network&gt; \
+  -e PORT=3001 \
+  -e RABBITMQ_URL=amqp://guest:guest@haproxy:5672 \
+  -e REDIS_URL=redis://redis:6379 \
+  order-service:local
+docker network ls                              # find the compose-created network's real name
+</code></pre>
+
+<h2>Primary sources</h2>
+<ul>
+<li><a href="https://docs.docker.com/build/building/multi-stage/">Docker Docs — Multi-stage builds</a></li>
+<li><a href="https://docs.docker.com/build/building/best-practices/">Docker Docs — Dockerfile best practices</a></li>
+</ul>
+
+<div class="nav">
+<a href="../lessons/0002-docker-multistage-build.html">&larr; Back to Lesson 2</a> ·
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a>
+</div>
+
+</body>
+</html>

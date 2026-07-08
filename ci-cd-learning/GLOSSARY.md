@@ -110,6 +110,37 @@ real deploy after CI passes, instead of relying on the platform's own "auto-depl
 every push" behavior (which has no CI gate in front of it).
 _Avoid_: Webhook (technically similar, but this workspace uses the platform's own term)
 
+**Base image**:
+The image named in a Dockerfile's `FROM` line that a stage builds on top of (e.g.
+`node:20-alpine`) — everything already installed in it (an OS, Node itself) comes for
+free; you only add what your app needs beyond that.
+_Avoid_: Parent image (used interchangeably elsewhere, but this workspace says base image)
+
+**Build context**:
+The set of files Docker can see and `COPY` from while building an image — by default,
+everything in the directory you run `docker build` from. `.dockerignore` removes files
+from this set (e.g. `node_modules`, `.env`) before the build even starts.
+_Avoid_: Working directory (that's `WORKDIR`, a different concept — where commands run
+*inside* the image, not what files Docker can read *from the host* while building it)
+
+**Builder stage / Runtime stage**:
+In a multi-stage build, the **builder stage** is an earlier `FROM` block that has the
+full toolchain (TypeScript compiler, dev dependencies) and produces compiled output.
+The **runtime stage** is the final `FROM` block — the one that actually ships — which
+`COPY --from=`s only the compiled output out of the builder stage, never the toolchain
+itself.
+_Avoid_: Build stage (ambiguous when there's more than one non-final stage; name stages
+explicitly instead, e.g. `AS builder`)
+
+**Layer**:
+Each Dockerfile instruction (`FROM`, `RUN`, `COPY`, ...) that changes the filesystem
+creates one cached layer. Docker reuses a layer from a previous build if nothing that
+would affect it (the instruction itself, or files it `COPY`'s) changed — why
+`COPY package*.json ./` + `RUN npm ci` is deliberately placed *before* `COPY . .`: it
+lets dependency install be cached and skipped on a rebuild where only source code
+changed.
+_Avoid_: Step (that's a GitHub Actions term for something else entirely — see **step**)
+
 **Build artifact** (GitHub Actions sense):
 A file or folder one job in a workflow uploads (`actions/upload-artifact`) so a later
 job (or a human, from the Actions UI) can download it — e.g. passing compiled output
