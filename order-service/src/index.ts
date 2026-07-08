@@ -64,6 +64,7 @@ app.get("/orders", async (_req: Request, res: Response) => {
   res.json(await getCachedOrders());
 });
 
+
 async function start(): Promise<void> {
   await connect();
   await connectRedis();
