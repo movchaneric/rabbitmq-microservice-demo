@@ -13,7 +13,9 @@ export async function connect(): Promise<void> {
   // after connection has been made
   getConnection()?.on("close", () => {
     console.log("'RabbitMQ connection closed — reconnecting...'");
-    reconnectForever()
+    reconnectForever().catch((err) =>
+      log(`reconnectForever failed unexpectedly: ${(err as Error).message}`),
+    );
   });
 
   getConnection()?.on("error", (err) =>

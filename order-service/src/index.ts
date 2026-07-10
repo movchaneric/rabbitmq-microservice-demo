@@ -44,12 +44,22 @@ app.post("/orders", (req: Request, res: Response) => {
       async (err) => {
         if (err) {
           return res.status(500).json({ error: "error publishing message" });
-        } else {
-          addOrder(order);
-          await invalidateOrdersCache();
-          console.log("ORDER PLACED", order.orderId);
-          return res.status(201).json(order);
         }
+
+        addOrder(order);
+        console.log("ORDER PLACED", order.orderId);
+
+        try {
+          await invalidateOrdersCache();
+        } catch (cacheErr) {
+          // The order itself was already placed successfully — a stale cache
+          // entry (bounded by its TTL) isn't worth failing the request over.
+          console.error(
+            `Cache invalidation failed → orderId=${order.orderId}: ${(cacheErr as Error).message}`,
+          );
+        }
+
+        return res.status(201).json(order);
       },
     );
   } catch (err) {
@@ -61,7 +71,12 @@ app.post("/orders", (req: Request, res: Response) => {
 });
 
 app.get("/orders", async (_req: Request, res: Response) => {
-  res.json(await getCachedOrders());
+  try {
+    res.json(await getCachedOrders());
+  } catch (err) {
+    console.error("GET /orders failed:", (err as Error).message);
+    res.status(500).json({ error: "failed to fetch orders" });
+  }
 });
 
 

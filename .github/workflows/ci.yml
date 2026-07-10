@@ -1,0 +1,40 @@
+name: order-service CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      order-service: ${{ steps.filter.outputs.order-service }}
+      gateway: ${{ steps.filter.outputs.gateway }}
+      inventory-service: ${{ steps.filter.outputs.inventory-service }}
+      notification-service: ${{ steps.filter.outputs.notification-service }}
+      dead-letter-service: ${{ steps.filter.outputs.dead-letter-service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            order-service:
+              - 'order-service/**'
+            gateway:
+              - 'gateway/**'
+            inventory-service:
+              - 'inventory-service/**'
+            notification-service:
+              - 'notification-service/**'
+            dead-letter-service:
+              - 'dead-letter-service/**'
+
+  order-service:
+    needs: changes # which job produces the filter outputs
+    if: needs.changes.outputs.order-service == 'true' 
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: order-service

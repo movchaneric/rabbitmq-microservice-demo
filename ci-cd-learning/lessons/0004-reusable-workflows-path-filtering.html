@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CI/CD Lesson 4 — Reusable Workflows &amp; Per-Job Path Filtering</title>
+<link rel="stylesheet" href="../../assets/style.css">
+<script src="../../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>CI/CD Lesson 4: Reusable Workflows &amp; Per-Job Path Filtering</h1>
+<p class="subtitle">Tied to mission: stop copy-pasting <code>order-service-ci.yaml</code> four more times</p>
+
+<h2>Where you are</h2>
+<p>
+<code>order-service</code> has a complete pipeline: test, then build-and-push to GHCR,
+tagged by commit SHA. Four more services need the exact same shape of pipeline. Your
+own instinct, stated directly before this lesson, was right: just widening
+<code>paths:</code> to list all 5 services in one workflow file doesn't work, because
+GitHub's built-in <code>on.push.paths</code> gates the <em>whole workflow</em>, not
+individual jobs inside it — a change to <code>gateway/</code> would still run
+<code>order-service</code>'s test and push jobs too. This lesson fixes that properly,
+with the two pieces named in the mission: <strong>reusable workflows</strong> (write the
+test→build→push logic once) and <strong>per-job path filtering</strong> (only run it
+for the service that actually changed).
+</p>
+
+<h2>The concept: a dispatcher, a reusable workflow, and a filter between them</h2>
+<p>
+<strong><code>dorny/paths-filter</code></strong> is an action that, inside one
+workflow run, inspects exactly which files changed and produces a true/false
+<strong>output</strong> per named group you define — e.g. "did anything under
+<code>order-service/</code> change? Did anything under <code>gateway/</code> change?"
+Each answer is available to every other job in that same run, which is the piece
+GitHub's built-in <code>paths:</code> key can't do at all.
+</p>
+<p>
+<strong>Reusable workflows</strong> solve the copy-paste problem separately: a workflow
+file with <code>on: workflow_call</code> instead of <code>on: push</code> isn't
+triggered directly — it's <em>called</em>, job-to-job, by another workflow, and can take
+<strong>inputs</strong> (parameters). Your entire <code>test</code> +
+<code>push-image</code> pattern becomes one such file, parameterized by which service
+it's running for.
+</p>
+<p>
+Put together, one <strong>dispatcher</strong> workflow does three things: (1) run
+<code>paths-filter</code> once to find out what changed, (2) for each service, a small
+job gated by <code>if:</code> on that service's filter output, that (3) — only if it
+runs at all — calls the one reusable workflow, passing in which service this is.
+</p>
+<pre><code>on: push / pull_request
+  |
+  v
+job "changes" -- dorny/paths-filter --> order-service: true, gateway: false, ...
+  |                                              |
+  v (if order-service == 'true')                 v (if gateway == 'true' -- skipped this run)
+job "order-service"                       job "gateway"
+  uses: ./service-ci.yml                     uses: ./service-ci.yml
+  with: { service: order-service }           with: { service: gateway }
+</code></pre>
+<p class="citation">
+Primary sources — read these before the exercise:
+<a href="https://github.com/dorny/paths-filter">dorny/paths-filter (README has the exact filter syntax)</a>,
+<a href="https://docs.github.com/en/actions/using-workflows/reusing-workflows">GitHub Docs — Reusing workflows</a>.
+</p>
+
+<h2>Check your understanding</h2>
+<p>Three short-answer questions, one word each.</p>
+
+<div class="quiz-q" data-answer="uses">
+  <p class="prompt">Q1. What YAML key, written directly on a <em>job</em> (not a step), tells that job to call an entire separate workflow file instead of running its own steps?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "uses"</strong> — the same keyword steps use to call an action
+    (`uses: actions/checkout@v4`), reused at the job level for a different purpose:
+    calling a whole reusable workflow (`uses: ./.github/workflows/service-ci.yml`).
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="inputs">
+  <p class="prompt">Q2. In a reusable workflow's `on: workflow_call:` block, what key declares the parameters a caller is required (or allowed) to pass in?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "inputs"</strong> — each one gets a `type` and whether it's
+    `required`. Inside the reusable workflow, you read one back with
+    `${{ inputs.name }}`.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="true">
+  <p class="prompt">Q3. A caller job's `if:` checks a filter output against which string value, to confirm that service's directory actually changed in this push/PR?</p>
+  <input type="text" placeholder="one word, with quotes">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "true"</strong> (as a string: `== 'true'`) — `paths-filter`'s
+    outputs are strings, not real booleans, so the comparison is against the literal
+    text `'true'`, not YAML's `true` keyword.
+  </div>
+</div>
+
+<h2>The exercise</h2>
+<p>
+Two new files, plus deleting one old one. This lesson wires up <strong>only
+`order-service`</strong> through the new setup, end to end — proving the mechanism
+works with the one service that already has everything (tests, Dockerfile). Porting
+the same Dockerfile/test/build pattern to the other 4 services is deliberately saved
+for right after this, once you're confident this shape actually works.
+</p>
+
+<div class="exercise">
+<h3>1. <span class="file">.github/workflows/service-ci.yml</span> (new file — the reusable workflow)</h3>
+<p>This is your existing `order-service-ci.yaml` logic, parameterized. Blanks:</p>
+<pre><code>name: Reusable service CI
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        required: ___        # must the caller always supply this?
+        type: ___             # what kind of value is a service name?
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ ___ }}   # read the input back — which service's folder?
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - run: npm test
+
+  push-image:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./${{ ___ }}                                            # same input, again
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/${{ ___ }}:${{ github.sha }}   # and again, in the tag
+</code></pre>
+</div>
+
+<div class="exercise">
+<h3>2. <span class="file">.github/workflows/ci.yml</span> (new file — the dispatcher)</h3>
+<pre><code>name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      order-service: ${{ steps.filter.outputs.order-service }}
+      gateway: ${{ steps.filter.outputs.gateway }}
+      inventory-service: ${{ steps.filter.outputs.inventory-service }}
+      notification-service: ${{ steps.filter.outputs.notification-service }}
+      dead-letter-service: ${{ steps.filter.outputs.dead-letter-service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            order-service:
+              - 'order-service/**'
+            gateway:
+              - 'gateway/**'
+            inventory-service:
+              - 'inventory-service/**'
+            notification-service:
+              - 'notification-service/**'
+            dead-letter-service:
+              - 'dead-letter-service/**'
+
+  order-service:
+    needs: ___                                              # which job produces the filter outputs?
+    if: needs.___.outputs.___ == '___'                       # job name, filter name, and the value from Q3
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: order-service
+</code></pre>
+<p class="ask-agent">Notice `changes`' `outputs:` block already lists all 5 services,
+and the `filters:` block already checks all 5 paths — even though only
+`order-service` has a caller job so far. That's intentional: the detection step
+doesn't care yet which services have a pipeline; it just reports what changed. Ask me
+if it's unclear why these are already fully filled in for all 5 while the caller job
+below is only for one.</p>
+</div>
+
+<div class="exercise">
+<h3>3. Delete <span class="file">.github/workflows/order-service-ci.yaml</span></h3>
+<p>
+It's now fully replaced by `ci.yml` + `service-ci.yml` together — leaving both would
+mean `order-service` runs its test/push pipeline <em>twice</em> on every push.
+</p>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+<li>Push a real change under <code>order-service/**</code>. In the Actions tab, you
+should see the new run named after <code>ci.yml</code>'s jobs: <code>changes</code>
+first, then <code>order-service</code> (which internally runs `test` then
+`push-image` — check its logs, they're the reusable workflow's jobs, just nested under
+this call).</li>
+<li>Open the <code>changes</code> job's logs and find the `dorny/paths-filter` step's
+output — confirm `order-service: true` and every other service `false`.</li>
+<li>Push a change under a <em>different</em> service (e.g. `gateway/`) and confirm:
+the `changes` job still runs (it always does), but no `order-service` job appears in
+this run at all — its `if:` evaluated false.</li>
+<li>Confirm the registry still gets a new SHA-tagged <code>order-service</code> image
+on the `order-service/**` push, same as Lesson 3.</li>
+</ol>
+
+<div class="win">
+One reusable workflow, parameterized by service name, plus one dispatcher that only
+calls it for services that actually changed. Adding the remaining 4 services from here
+is copying a 6-line caller block, not a 25-line workflow file.
+</div>
+
+<h2>Next up</h2>
+<p>
+Port the Dockerfile/test/build-script pattern from Lessons 1-2 to the other 4
+services, then add each one's caller job to <code>ci.yml</code> — mechanical work now
+that the shape is proven, not new concepts. After that: CD, deploying these images to
+Render. Ask me anything about this lesson first.
+</p>
+
+<div class="nav">
+Reference: <a href="../reference/github-actions-anatomy.html">GitHub Actions Anatomy cheat sheet</a> ·
+<a href="../reference/dockerfile-anatomy.html">Dockerfile Anatomy cheat sheet</a> ·
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a>
+</div>
+
+</body>
+</html>
