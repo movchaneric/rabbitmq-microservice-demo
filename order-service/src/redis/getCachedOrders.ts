@@ -45,7 +45,13 @@ export async function getCachedOrders(): Promise<Order[]> {
     try {
       return await fetchAndCache();
     } finally {
-      await redisClient.del(LOCK_KEY);
+      try {
+        await redisClient.del(LOCK_KEY);
+      } catch (unlockErr) {
+        console.error(
+          `Failed to release lock ${LOCK_KEY}: ${(unlockErr as Error).message}`,
+        );
+      }
     }
   }
 
