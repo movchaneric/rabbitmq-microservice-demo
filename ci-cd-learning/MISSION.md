@@ -86,6 +86,18 @@ order, for real.
    notifications, branch protection requiring CI to pass before merge.
 
 ## Revision history
+- **2026-07-10** — All 5 services now wired into `ci.yml`'s dispatcher, each calling
+  Lesson 4's reusable `service-ci.yml`. `gateway`, `inventory-service`,
+  `notification-service`, `dead-letter-service` got the same mechanical treatment
+  `order-service` got in Lessons 1-2 (real vitest test, `tsc` build script, multi-stage
+  Dockerfile, `.dockerignore`) — done directly, at the user's explicit request, since
+  the underlying skill was already demonstrated and this was pure repetition, not new
+  material. Same cross-platform lock-file issue from Lesson 1 recurred across all 4
+  services' fresh `npm install`s (macOS-generated lock file missing Linux-only optional
+  deps) — same clean-regenerate fix applied each time, now a recognized pattern rather
+  than a one-off surprise. `gateway`'s test needed `vi.mock` on `./client` since that
+  module throws at import time without a real `REDIS_URL` — a new, small wrinkle not
+  seen in the other services' simpler `data.ts` modules.
 - **2026-07-08** — Lesson 1 (CI fundamentals) completed and verified live: a real
   Vitest test for `order-service/src/data.ts`, a path-filtered CI workflow, and the
   full red/green/red/green + path-filter-skip verification loop, including two
