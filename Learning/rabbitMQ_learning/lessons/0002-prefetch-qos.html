@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lesson 2 — Prefetch / QoS</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<script src="../../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>Lesson 2: Prefetch / QoS</h1>
+<p class="subtitle">Tied to mission: give <code>inventory-service</code> backpressure control over its own queue</p>
+
+<h2>Where you are</h2>
+<p>
+Every consumer you've written so far (<code>ordersInventoryConsumer</code>,
+<code>orderNotificationConsumer</code>, <code>deadLetterConsumer</code>) calls
+<code>channel.consume(...)</code> with no limit on how many messages RabbitMQ hands it
+at once. That default is <strong>unlimited</strong> — the broker will push every
+currently-ready message straight into that consumer's channel the moment it's
+connected, regardless of whether the consumer has finished processing (acked) anything
+yet.
+</p>
+
+<h2>The concept: prefetch as backpressure</h2>
+<p>
+<code>channel.prefetch(n)</code> (AMQP's <code>basic.qos</code>) tells RabbitMQ:
+"never let more than <code>n</code> unacknowledged messages sit with this consumer at
+once." Until an ack (or nack) frees up a slot, the broker holds the rest back in the
+queue instead of pushing them.
+</p>
+<ul>
+  <li><strong>prefetch(1)</strong> — strict one-at-a-time. Maximum fairness (if you
+    later run multiple consumer instances on the same queue, work spreads by actual
+    speed, not a static round-robin), but no pipelining — throughput drops.</li>
+  <li><strong>prefetch(100–300)</strong> — the range the RabbitMQ team and CloudAMQP
+    both point to as a solid default for most workloads: enough in flight to keep
+    throughput up, bounded enough to avoid one consumer hoarding the entire queue.</li>
+  <li><strong>no prefetch set (current state of this repo)</strong> — a burst of
+    messages gets dumped entirely onto whichever consumer is currently connected, with
+    zero regard for how fast it's actually working through them.</li>
+</ul>
+<p class="citation">
+Primary source: <a href="https://www.rabbitmq.com/docs/consumer-prefetch">RabbitMQ Docs — Consumer Prefetch</a>.
+Practical numbers: <a href="https://www.cloudamqp.com/blog/how-to-optimize-the-rabbitmq-prefetch-count.html">CloudAMQP — How to Optimize the RabbitMQ Prefetch Count</a>.
+</p>
+
+<h2>Check your understanding</h2>
+
+<div class="quiz-q" data-answer="unacked count">
+  <p class="prompt">Q1. What does RabbitMQ's management UI call the number of messages delivered to a consumer but not yet acked or nacked?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "unacked count"</strong> — visible per-queue in the management UI.
+    This is exactly the number prefetch puts a ceiling on.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="all of them">
+  <p class="prompt">Q2. With no prefetch limit set, if 20 messages are ready and one consumer is connected, how many will the broker push to it immediately?</p>
+  <input type="text" placeholder="two-three words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "all of them"</strong> — unlimited prefetch means unlimited
+    push. This is the exact behavior you're about to make visible in the exercise below.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="channel prefetch">
+  <p class="prompt">Q3. What method call, made once per channel, sets this limit in amqplib?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "channel prefetch"</strong> — <code>channel.prefetch(n)</code>,
+    typically called right after the channel is created, before consuming starts.
+  </div>
+</div>
+
+<h2>The exercise</h2>
+<p>
+Goal: make the "no backpressure" problem <em>visible</em> first, then fix it — in
+<code>inventory-service</code> only. No full solution below, same as last time —
+fill it in using what you just read.
+</p>
+
+<div class="exercise">
+<h3>1. <span class="file">inventory-service/src/rabbitmq/consumers/ordersInventoryConsumer.ts</span></h3>
+<p>
+Add an artificial processing delay so a burst of orders doesn't all finish instantly
+— otherwise you won't be able to see anything in the UI before it's over. Make the
+consume callback <code>async</code> and await a delay before the existing
+ack/nack logic:
+</p>
+<pre><code>channel.consume(QUEUES.ORDERS_INVENTORY, async (msg) => {
+  if (!msg) return;
+  const order: Order = JSON.parse(msg.content.toString());
+
+  await new Promise((resolve) => setTimeout(resolve, ___));  // pick a delay you can watch
+
+  // ...existing shouldFail() / ack / nack logic below, unchanged
+});
+</code></pre>
+</div>
+
+<div class="exercise">
+<h3>2. Observe the problem <em>before</em> fixing it</h3>
+<p>
+Don't add prefetch yet. Restart the stack, then fire off a burst — e.g. run
+<code>POST /api/v1/orders</code> 10 times in a couple seconds (a quick shell loop is
+fine). Open <code>http://localhost:15672</code> → Queues → <code>q.orders.inventory</code>
+and watch the <strong>Ready</strong> vs <strong>Unacked</strong> columns while your
+delay is still running. What do you expect Unacked to jump to, given no limit is set?
+</p>
+</div>
+
+<div class="exercise">
+<h3>3. <span class="file">inventory-service/src/rabbitmq/index.ts</span></h3>
+<p>
+Now fix it. Add the prefetch call in <code>connect()</code>, on the channel, before
+<code>startConsumer(channel)</code> runs:
+</p>
+<pre><code>const channel = await createConnection();
+await channel.prefetch(___);   // what value, and why that one over 1 or 300?
+await setupTopology(channel);
+startConsumer(channel);
+</code></pre>
+<p>Re-run the same burst test. Unacked should now be capped at whatever number you
+chose, with the rest sitting in Ready until a slot frees up.</p>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+  <li>Run the burst <em>before</em> adding prefetch — record what Unacked peaks at.</li>
+  <li>Add <code>channel.prefetch(n)</code>, restart, run the same burst again —
+    confirm Unacked never exceeds <code>n</code>.</li>
+  <li>Try <code>n = 1</code> once just to feel the throughput cost — time how long the
+    full burst takes to drain compared to your chosen production-ish value.</li>
+</ol>
+
+<div class="win">
+You can now make a RabbitMQ consumer apply real backpressure — and you've <em>seen</em>
+the difference in the management UI, not just read about it.
+</div>
+
+<h2>Next up</h2>
+<p><strong>Publisher confirms</strong> is the other queued item in
+<a href="../MISSION.md">MISSION.md</a> — closing the gap where <code>order-service</code>'s
+publish could silently vanish if the channel drops before RabbitMQ persists it. Or ask
+me anything about prefetch first.</p>
+
+<div class="nav">
+  <a href="../GLOSSARY.md">Glossary</a> ·
+  <a href="../MISSION.md">Mission</a> ·
+  <a href="0001-delayed-retry-ttl-parking-lot.html">&larr; Lesson 1</a>
+</div>
+
+</body>
+</html>

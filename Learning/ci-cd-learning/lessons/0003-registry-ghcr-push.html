@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CI/CD Lesson 3 — Pushing to GitHub Container Registry</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<script src="../../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>CI/CD Lesson 3: Pushing to GitHub Container Registry</h1>
+<p class="subtitle">Tied to mission: get <code>order-service</code>'s image somewhere a hosting platform can actually reach</p>
+
+<h2>Where you are</h2>
+<p>
+<code>order-service</code> has a real CI gate (Lesson 1) and a real multi-stage image
+that builds and runs correctly (Lesson 2) — but that image only exists on your laptop.
+This lesson makes CI build that same image and push it to
+<strong>GitHub Container Registry</strong> (<code>ghcr.io</code>), tagged by the exact
+git commit that produced it — not <code>latest</code>. Once this lands, the image is
+somewhere real: reachable by anything with the right credentials, including Render in
+the next lesson.
+</p>
+
+<h2>The concept: registries, and why not `latest`</h2>
+<p>
+A <strong>registry</strong> stores built images by name and tag, the same way npm's
+registry stores packages by name and version. <code>docker push</code> sends an image
+there; <code>docker pull</code> retrieves it — which is exactly what a hosting
+platform does under the hood when it deploys your image, without ever touching your
+source code or running a Docker build itself.
+</p>
+<p>
+<strong>Why GHCR specifically:</strong> since this repo already lives on GitHub, a
+workflow can authenticate to <code>ghcr.io</code> using the
+<code>GITHUB_TOKEN</code> GitHub automatically issues to every run — no separate
+account, no extra credentials to create and store as a secret.
+</p>
+<p>
+<strong>Why tag by git SHA instead of `latest`:</strong> <code>latest</code> is a label
+that gets silently overwritten on every push. Deploy `latest` today, and if it's
+broken, there's no way to look at a running container and know which commit actually
+produced it, and no clean way to roll back to a specific earlier version by name.
+Tagging by the commit SHA (<code>order-service:7f38a79...</code>) makes every pushed
+image permanently traceable back to the exact code that built it.
+</p>
+<div class="callout">
+<strong>This job only runs on a real push to `main`, not on every PR.</strong> Building
+and pushing an image for every single PR commit would mean cluttering the registry
+with images that may never actually deploy — same CI-vs-CD boundary from Lesson 1
+(the `pull_request` event tests a change; only a `push` to `main` should ever produce
+something that might get deployed).
+</div>
+<p class="citation">
+Primary source — read this before the exercise:
+<a href="https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images">GitHub Docs — Publishing Docker images</a>.
+</p>
+
+<h2>Check your understanding</h2>
+<p>Three short-answer questions, one word each.</p>
+
+<div class="quiz-q" data-answer="push">
+  <p class="prompt">Q1. On `docker/build-push-action`, what boolean input actually tells it to publish the image to the registry, instead of just building it locally inside the runner and discarding it?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "push"</strong> — `push: true`. Without it, the action still
+    builds the image (useful for a PR job that just wants to confirm the Dockerfile
+    works), but never sends it anywhere.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="permissions">
+  <p class="prompt">Q2. The workflow already has access to `secrets.GITHUB_TOKEN` — but that alone isn't enough to push a package. What job-level YAML key also has to explicitly grant write access?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "permissions"</strong> — `permissions: packages: write`.
+    `GITHUB_TOKEN`'s default scope doesn't assume every job wants to publish packages;
+    you opt in per-job.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="immutable">
+  <p class="prompt">Q3. What's the property of a git-SHA-based tag (as opposed to `latest`) that makes it trustworthy for tracing exactly what code is running in production?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "immutable"</strong> — a given SHA tag can only ever refer to the
+    image built from that exact commit. `latest` is a floating pointer that gets
+    reassigned; a SHA tag never does.
+  </div>
+</div>
+
+<h2>The exercise</h2>
+<p>
+One file, extended — add a second job to the <em>same</em> workflow from Lesson 1
+(<code>.github/workflows/order-service-ci.yaml</code>), right alongside the existing
+<code>test</code> job. Blanks (<code>___</code>) are yours to fill.
+</p>
+
+<div class="exercise">
+<h3><span class="file">.github/workflows/order-service-ci.yaml</span> — add this job</h3>
+<pre><code>  push-image:
+    needs: ___                       # which job must succeed first — no point pushing an image for broken code
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: ___                  # what access does actually pushing a package need?
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ___              # which registry are we authenticating to?
+          username: ${{ github.actor }}
+          password: ${{ secrets.___ }}   # which built-in secret authenticates this, no setup required?
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ___                # which folder has order-service's own Dockerfile?
+          push: ___                   # from Q1 — what actually publishes it?
+          tags: ghcr.io/${{ github.repository_owner }}/order-service:${{ ___ }}   # tag by what, not "latest"?
+</code></pre>
+<p class="ask-agent">Note this job has no `defaults.run.working-directory` like the
+`test` job does — that key only affects `run:` steps (plain shell commands). Every
+step here is `uses:` (a packaged action), so instead the folder is passed explicitly as
+the `context` input on the one step that needs it. The last blank is a built-in
+GitHub Actions context value (not a secret) that holds the full SHA of the commit
+that triggered this run — check the
+<a href="https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#github-context">github context reference</a>
+if you're not sure of its exact name.</p>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+<li>Push this change to <code>main</code> directly (it's a workflow file change, not
+`order-service/**`, so note: this <em>won't</em> trigger the path filter — you'll need
+to also touch something under <code>order-service/**</code> in the same push, or
+temporarily widen the path filter, to actually see `push-image` run. Ask me if this
+catches you out.)</li>
+<li>Watch the Actions tab: you should see <strong>two</strong> jobs this time —
+<code>test</code>, then <code>push-image</code> starting only after it turns green.</li>
+<li>On GitHub, go to your repository's main page → right sidebar → <strong>Packages</strong>.
+You should see a new <code>order-service</code> package, with a tag matching the exact
+commit SHA from your push.</li>
+<li>Push again with a trivial change (a comment) and confirm a <em>second</em>, distinct
+SHA-tagged image appears — proving each push produces its own permanently traceable
+image, nothing overwritten.</li>
+</ol>
+
+<div class="win">
+<code>order-service</code>'s image now lives somewhere real — versioned, traceable to
+an exact commit, and reachable by anything with the right credentials. Nothing about
+deploying it depends on your laptop anymore.
+</div>
+
+<h2>Next up</h2>
+<p>
+Per the mission's rough phase plan, two candidates: <strong>scale this pattern to all
+5 services</strong> (reusable workflows + path filtering, so this isn't copy-pasted
+five times), or jump straight to <strong>CD</strong> (deploy this specific image to
+Render via a deploy hook). Tell me which you want next, or ask me anything about this
+lesson first.
+</p>
+
+<div class="nav">
+Reference: <a href="../reference/github-actions-anatomy.html">GitHub Actions Anatomy cheat sheet</a> ·
+<a href="../reference/dockerfile-anatomy.html">Dockerfile Anatomy cheat sheet</a> ·
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a>
+</div>
+
+</body>
+</html>

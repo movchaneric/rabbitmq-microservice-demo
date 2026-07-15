@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CI/CD Lesson 2 — Docker Multi-Stage Build</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<script src="../../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>CI/CD Lesson 2: Docker Multi-Stage Build</h1>
+<p class="subtitle">Tied to mission: give <code>order-service</code> a real, runnable container image</p>
+
+<h2>Where you are</h2>
+<p>
+<code>order-service</code> now has a real test and a real CI gate (Lesson 1) —
+verified live, including two genuine failures you debugged yourself. But CI only
+proves the code works when run with <code>ts-node</code> straight from source. Nothing
+about this repo can be deployed anywhere yet, because nothing has ever been packaged
+into something a hosting platform (or anyone else's machine) can just run. That's what
+an image is for.
+</p>
+
+<h2>The concept: why two `FROM` lines, not one</h2>
+<p>
+A container <strong>image</strong> is a snapshot: a filesystem plus a default command
+to run. You could write a single-stage Dockerfile that installs
+<em>everything</em> — <code>typescript</code>, <code>ts-node</code>, every dev
+dependency — and runs the app straight from <code>.ts</code> source, same as your
+local <code>npm start</code>. It would work. It would also ship a full TypeScript
+toolchain inside something whose only job, in production, is running already-compiled
+JavaScript — bigger, slower to pull, and carrying build tools the running app has no
+use for.
+</p>
+<p>
+A <strong>multi-stage build</strong> fixes this: an earlier stage (the
+<strong>builder stage</strong>) has the full toolchain and compiles TypeScript to
+plain JavaScript. The final stage (the <strong>runtime stage</strong>) starts from a
+<em>fresh</em> base image and copies over only the compiled output
+(<code>COPY --from=builder</code>) — none of the builder stage's layers carry over
+automatically. What ships is exactly: Node itself, production dependencies, and
+compiled JS. Nothing else.
+</p>
+<div class="callout">
+<strong>This is the same shape as Lesson 1's builder/runtime split in your CI job</strong> —
+there, `npm ci` installed <em>everything</em> (dev + prod) because tests need
+`vitest`. Here, the final image explicitly does <em>not</em> want dev dependencies at
+all. Same underlying idea (don't carry more than the next step needs), applied to a
+different boundary.
+</div>
+<p class="citation">
+Primary source — read this before the exercise:
+<a href="https://docs.docker.com/build/building/multi-stage/">Docker Docs — Multi-stage builds</a>.
+Full annotated example: <a href="../reference/dockerfile-anatomy.html">this workspace's own cheat sheet</a>.
+</p>
+
+<h2>Check your understanding</h2>
+<p>Three short-answer questions, one word each.</p>
+
+<div class="quiz-q" data-answer="from">
+  <p class="prompt">Q1. What Dockerfile instruction starts a brand-new stage, with its own fresh base image?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "FROM"</strong> — each `FROM` line starts over from a base image;
+    nothing from a previous stage is present unless you explicitly `COPY --from=` it in.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="dist">
+  <p class="prompt">Q2. Check <code>order-service/tsconfig.json</code> yourself — what's the compiled JavaScript output folder called (its `outDir`)?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "dist"</strong> — this is exactly the folder the runtime stage
+    needs to `COPY --from=builder`, and nothing else from the builder stage.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="cache">
+  <p class="prompt">Q3. Why does the reference sheet's Dockerfile `COPY package*.json ./` and `RUN npm ci` <em>before</em> `COPY . .` (the rest of the source), instead of copying everything at once?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "cache"</strong> (Docker layer caching) — if only source files
+    change on a rebuild, and the dependency-install layer's inputs
+    (`package*.json`) didn't change, Docker reuses that layer instead of
+    re-running `npm ci` from scratch every time.
+  </div>
+</div>
+
+<h2>The exercise</h2>
+<p>Three files. Blanks (<code>___</code>) are yours to fill using the concepts above and the reference sheet.</p>
+
+<div class="exercise">
+<h3>1. <span class="file">order-service/package.json</span></h3>
+<p>There's no script yet that actually compiles TypeScript — <code>start</code> runs
+straight from source via <code>ts-node</code>. Add a sibling script:</p>
+<pre><code>"build": "___"</code></pre>
+<p class="ask-agent">Check <code>devDependencies</code> — the TypeScript compiler is
+already installed. What's the CLI command that reads <code>tsconfig.json</code> and
+compiles <code>src/</code> into <code>outDir</code>?</p>
+</div>
+
+<div class="exercise">
+<h3>2. <span class="file">order-service/Dockerfile</span> (new file)</h3>
+<pre><code># ---- builder stage ----
+FROM node:20-alpine AS ___
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run ___
+
+# ---- runtime stage ----
+FROM node:20-alpine
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --___
+
+COPY --from=___ /app/___ ./dist
+
+EXPOSE ___
+CMD ["node", "___"]
+</code></pre>
+<p class="ask-agent">Blanks, in order: (1) a name for the builder stage, referenced
+later; (2) the script from part 1; (3) the `npm ci` flag that skips dev dependencies;
+(4)+(5) which stage, and which folder, the runtime stage copies from; (6) the port
+`order-service/.env.example` says this service listens on; (7) the compiled entry
+point (not `src/index.ts` — the compiled equivalent, inside `dist/`).</p>
+</div>
+
+<div class="exercise">
+<h3>3. <span class="file">order-service/.dockerignore</span> (new file)</h3>
+<p>At minimum, exclude these from the build context:</p>
+<pre><code>node_modules
+___
+dist
+</code></pre>
+<p class="ask-agent">One more entry: what file holds real secrets/connection strings
+locally and should never end up baked into an image layer?</p>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+<li>Build it: <code>docker build -t order-service:local ./order-service</code></li>
+<li>Check the size: <code>docker images order-service:local</code> — note the number,
+you'll want it for comparison once you containerize a service without multi-stage
+later, if you ever do.</li>
+<li>Bring up the existing broker/cache: <code>docker-compose up -d</code> (from the
+repo root, unchanged from your RabbitMQ/Redis tracks).</li>
+<li>Find the network Compose actually created: <code>docker network ls</code> — look
+for one containing <code>rabbitmq-cluster</code>.</li>
+<li>Run your image on that network, pointing at the containers by their service
+names instead of <code>localhost</code>:
+<pre><code>docker run --rm -p 3001:3001 \
+  --network &lt;the-network-name-you-just-found&gt; \
+  -e PORT=3001 \
+  -e RABBITMQ_URL=amqp://guest:guest@haproxy:5672 \
+  -e REDIS_URL=redis://redis:6379 \
+  order-service:local</code></pre>
+</li>
+<li>From another terminal: <code>curl -X POST http://localhost:3001/orders -H "Content-Type: application/json" -d '{"productId":"sku-1","quantity":2,"customerEmail":"a@b.com"}'</code>
+— you should get a <code>201</code> with the order back.</li>
+<li><code>curl http://localhost:3001/orders</code> should show it in the list.</li>
+</ol>
+<p class="ask-agent">If the container can't reach RabbitMQ/Redis at all (connection
+refused, not just slow), the most likely cause is the <code>--network</code> flag
+pointing at the wrong network name, or a typo in <code>haproxy</code>/<code>redis</code>
+as hostnames — Docker's embedded DNS only resolves other containers' service names if
+they're on the exact same user-defined network. Ask me if you're stuck.</p>
+
+<div class="win">
+<code>order-service</code> is now a real, portable container image — no TypeScript
+toolchain inside it, just Node and compiled JS — that runs identically wherever Docker
+runs, not just on your machine with <code>ts-node</code> installed.
+</div>
+
+<h2>Next up</h2>
+<p>
+Per the mission's rough phase plan: <strong>the registry</strong> — CI builds this
+same image and pushes it to GitHub Container Registry, tagged by git SHA instead of
+just <code>latest</code>. Ask me anything about this lesson first, or about why any of
+the Dockerfile instructions work the way they do.
+</p>
+
+<div class="nav">
+Reference: <a href="../reference/dockerfile-anatomy.html">Dockerfile Anatomy cheat sheet</a> ·
+<a href="../reference/github-actions-anatomy.html">GitHub Actions Anatomy cheat sheet</a> ·
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a>
+</div>
+
+</body>
+</html>

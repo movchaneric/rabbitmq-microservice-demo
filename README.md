@@ -2,11 +2,11 @@
 
 An order → inventory/notification → dead-letter pipeline over RabbitMQ, used as a
 hands-on vehicle for learning production-grade messaging patterns one at a time. See
-[MISSION.md](rabbitMQ_learning/MISSION.md) for the full goal and scope.
+[MISSION.md](Learning/rabbitMQ_learning/MISSION.md) for the full goal and scope.
 
-Learning docs live in two folders, one per track: **[rabbitMQ_learning/](rabbitMQ_learning/)**
-and **[redis_learning/](redis_learning/)** (started once the RabbitMQ arc below
-wrapped up — see [redis_learning/MISSION.md](redis_learning/MISSION.md)).
+Learning docs live in two folders, one per track: **[rabbitMQ_learning/](Learning/rabbitMQ_learning/)**
+and **[redis_learning/](Learning/redis_learning/)** (started once the RabbitMQ arc below
+wrapped up — see [redis_learning/MISSION.md](Learning/redis_learning/MISSION.md)).
 
 ## Services
 
@@ -23,8 +23,8 @@ All services connect through **HAProxy** to a 3-node RabbitMQ **cluster** using
 
 Nearly every lesson below wasn't planned in advance — it was pulled into scope because
 live-testing the *previous* lesson exposed a gap. Full write-up with the problem and
-takeaway for each step: **[JOURNEY.md](rabbitMQ_learning/JOURNEY.md)**. Also see the
-**[Udemy course checklist](rabbitMQ_learning/rabbitmq-course-checklist.html)** for what's
+takeaway for each step: **[JOURNEY.md](Learning/rabbitMQ_learning/JOURNEY.md)**. Also see the
+**[Udemy course checklist](Learning/rabbitMQ_learning/rabbitmq-course-checklist.html)** for what's
 covered vs. still missing against an outside curriculum.
 
 ```mermaid
@@ -57,19 +57,19 @@ flowchart TD
 
 | Lesson | Topic | Status |
 |---|---|---|
-| 1 | [Delayed Retry (TTL Parking Lot)](rabbitMQ_learning/lessons/0001-delayed-retry-ttl-parking-lot.html) | Done |
-| 2 | [Prefetch / QoS](rabbitMQ_learning/lessons/0002-prefetch-qos.html) | Done |
-| 3 | [Publisher Confirms](rabbitMQ_learning/lessons/0003-publisher-confirms.html) | Done |
-| 4 | [Idempotent Consumers](rabbitMQ_learning/lessons/0004-idempotent-consumers.html) | Deferred |
-| 5 | [Connection & Channel Recovery](rabbitMQ_learning/lessons/0005-connection-recovery.html) | Done |
-| 6 | [Clustering & Quorum Queues](rabbitMQ_learning/lessons/0006-clustering-quorum-queues.html) | Done |
-| 7 | [HAProxy Load Balancer](rabbitMQ_learning/lessons/0007-haproxy-load-balancer.html) | Done |
+| 1 | [Delayed Retry (TTL Parking Lot)](Learning/rabbitMQ_learning/lessons/0001-delayed-retry-ttl-parking-lot.html) | Done |
+| 2 | [Prefetch / QoS](Learning/rabbitMQ_learning/lessons/0002-prefetch-qos.html) | Done |
+| 3 | [Publisher Confirms](Learning/rabbitMQ_learning/lessons/0003-publisher-confirms.html) | Done |
+| 4 | [Idempotent Consumers](Learning/rabbitMQ_learning/lessons/0004-idempotent-consumers.html) | Deferred |
+| 5 | [Connection & Channel Recovery](Learning/rabbitMQ_learning/lessons/0005-connection-recovery.html) | Done |
+| 6 | [Clustering & Quorum Queues](Learning/rabbitMQ_learning/lessons/0006-clustering-quorum-queues.html) | Done |
+| 7 | [HAProxy Load Balancer](Learning/rabbitMQ_learning/lessons/0007-haproxy-load-balancer.html) | Done |
 
 ## Redis learning journey
 
 A second, separate track (own folder, own lesson numbering) started once the RabbitMQ
 arc above wrapped up — rate limiting first, then caching, both against `redis`. Full
-write-up: **[redis_learning/JOURNEY.md](redis_learning/JOURNEY.md)**.
+write-up: **[redis_learning/JOURNEY.md](Learning/redis_learning/JOURNEY.md)**.
 
 ```mermaid
 flowchart TD
@@ -105,24 +105,24 @@ flowchart TD
 
 | Lesson | Topic | Status |
 |---|---|---|
-| 1 | [Redis Fundamentals](redis_learning/lessons/0001-what-redis-is.html) | Done |
-| 2 | [Client Wiring](redis_learning/lessons/0002-client-wiring.html) | Done |
-| 3 | [Fixed-Window Rate Limiter](redis_learning/lessons/0003-fixed-window-rate-limiter.html) | Done |
-| 4 | [Sliding-Window Rate Limiter](redis_learning/lessons/0004-sliding-window-sorted-sets.html) | Done |
-| 5 | [Token Bucket](redis_learning/lessons/0005-token-bucket.html) | Done |
-| 6 | [Limiter Factory](redis_learning/lessons/0006-limiter-factory.html) | Done |
-| 7 | [Cache-Aside (inventory-service)](redis_learning/lessons/0007-cache-aside-inventory.html) | Done |
-| 8 | [Single-Flight Locking](redis_learning/lessons/0008-single-flight-lock.html) | Done |
-| 9 | [Write-Path Invalidation (order-service)](redis_learning/lessons/0009-write-path-invalidation.html) | Done |
+| 1 | [Redis Fundamentals](Learning/redis_learning/lessons/0001-what-redis-is.html) | Done |
+| 2 | [Client Wiring](Learning/redis_learning/lessons/0002-client-wiring.html) | Done |
+| 3 | [Fixed-Window Rate Limiter](Learning/redis_learning/lessons/0003-fixed-window-rate-limiter.html) | Done |
+| 4 | [Sliding-Window Rate Limiter](Learning/redis_learning/lessons/0004-sliding-window-sorted-sets.html) | Done |
+| 5 | [Token Bucket](Learning/redis_learning/lessons/0005-token-bucket.html) | Done |
+| 6 | [Limiter Factory](Learning/redis_learning/lessons/0006-limiter-factory.html) | Done |
+| 7 | [Cache-Aside (inventory-service)](Learning/redis_learning/lessons/0007-cache-aside-inventory.html) | Done |
+| 8 | [Single-Flight Locking](Learning/redis_learning/lessons/0008-single-flight-lock.html) | Done |
+| 9 | [Write-Path Invalidation (order-service)](Learning/redis_learning/lessons/0009-write-path-invalidation.html) | Done |
 
 ## Other docs
 
-- [MISSION.md](rabbitMQ_learning/MISSION.md) — RabbitMQ goal, success criteria, scope
-- [redis_learning/MISSION.md](redis_learning/MISSION.md) — Redis goal, success criteria, scope
-- [redis_learning/reference/data-types.md](redis_learning/reference/data-types.md) — Redis data types quick reference
+- [MISSION.md](Learning/rabbitMQ_learning/MISSION.md) — RabbitMQ goal, success criteria, scope
+- [redis_learning/MISSION.md](Learning/redis_learning/MISSION.md) — Redis goal, success criteria, scope
+- [redis_learning/reference/data-types.md](Learning/redis_learning/reference/data-types.md) — Redis data types quick reference
 - [ROUTES.md](ROUTES.md) — API routes
-- [GLOSSARY.md](rabbitMQ_learning/GLOSSARY.md) — terms introduced along the way
-- [RESOURCES.md](rabbitMQ_learning/RESOURCES.md) — primary sources per lesson
+- [GLOSSARY.md](Learning/rabbitMQ_learning/GLOSSARY.md) — terms introduced along the way
+- [RESOURCES.md](Learning/rabbitMQ_learning/RESOURCES.md) — primary sources per lesson
 
 ## Running it
 

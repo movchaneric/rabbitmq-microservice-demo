@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lesson 4 — Idempotent Consumers</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<script src="../../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>Lesson 4: Idempotent Consumers</h1>
+<p class="subtitle">Tied to mission: fix the notification double-send bug you found yourself</p>
+
+<h2>Where you are</h2>
+<p>
+Back in <a href="0001-delayed-retry-ttl-parking-lot.html">Lesson 1</a> you traced the
+full order lifecycle and noticed something: <code>q.orders.notification</code> is
+bound to <code>ex.orders</code>/<code>order.placed</code> — the exact same key
+<code>q.orders.retry</code> dead-letters back into on every retry. That means every
+single retry cycle re-sends a "your order is confirmed" email, even though the order
+hasn't actually succeeded yet (and might still fail permanently). You flagged it and
+moved on. This lesson is coming back to fix it.
+</p>
+
+<h2>The concept: at-least-once, not exactly-once</h2>
+<p>
+RabbitMQ — like essentially every message broker — guarantees <strong>at-least-once
+delivery</strong>, never exactly-once. Duplicates aren't a bug or an edge case; they're
+a normal, expected consequence of how reliability works at all. Two concrete sources
+of duplication exist in this repo already:
+</p>
+<ul>
+  <li><strong>The parking-lot retry</strong> (your own design) — re-publishes to
+    <code>order.placed</code>, which every bound queue receives again, not just the
+    one that actually failed.</li>
+  <li><strong>The universal one</strong> — if a consumer crashes after processing a
+    message but before calling <code>ack</code>, RabbitMQ redelivers it. Nothing about
+    your code can prevent this; it's inherent to manual ack.</li>
+</ul>
+<p>
+The fix is never "stop the duplicates from arriving" — you can't, and shouldn't try.
+The fix is making the consumer's <em>effect</em> the same whether it processes a
+message once or five times. That's the <strong>idempotent consumer pattern</strong>.
+</p>
+<p class="citation">
+Primary source: <a href="https://microservices.io/post/microservices/patterns/2020/10/16/idempotent-consumer.html">microservices.io — Idempotent Consumer pattern</a> (Chris Richardson's pattern catalog — the standard reference for this).
+Also see <a href="https://www.rabbitmq.com/docs/reliability">RabbitMQ Docs — Reliability Guide</a> for where duplication fits into the broader reliability picture.
+</p>
+
+<div class="callout">
+<strong>The general recipe:</strong> give every message a stable identifier (you
+already have one — <code>orderId</code>), and before your consumer produces any
+externally-visible effect (sending an email, charging a card, writing a row), check
+whether that identifier has been handled before. If yes, skip the effect — but still
+<code>ack</code> the message; a duplicate isn't a failure, it's just a no-op.
+</div>
+
+<h2>Check your understanding</h2>
+
+<div class="quiz-q" data-answer="at least once">
+  <p class="prompt">Q1. What delivery guarantee does RabbitMQ actually provide?</p>
+  <input type="text" placeholder="three words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "at least once"</strong> — never exactly-once. Any system built
+    on RabbitMQ (or almost any broker) has to assume duplicates are possible.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="parking lot retry">
+  <p class="prompt">Q2. What feature you already built is the specific cause of duplicate notifications in this repo?</p>
+  <input type="text" placeholder="three words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "parking lot retry"</strong> — it republishes to the same
+    routing key every bound queue listens on, notification-service included.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="idempotent consumer pattern">
+  <p class="prompt">Q3. What's the name of the pattern that fixes this — not by stopping duplicates, but by making them harmless?</p>
+  <input type="text" placeholder="three words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "idempotent consumer pattern"</strong> — same effect whether a
+    message is processed once or five times.
+  </div>
+</div>
+
+<h2>The exercise</h2>
+<p>Two files in <code>notification-service</code>. Fill it in yourself.</p>
+
+<div class="exercise">
+<h3>1. <span class="file">notification-service/src/data.ts</span></h3>
+<p>Currently just an array and two functions. Add a way to track which
+<code>orderId</code>s have already been notified:</p>
+<pre><code>import { Notification } from './types';
+
+const notifications: Notification[] = [];
+const notifiedOrderIds = new ___&lt;string&gt;();  // what structure gives O(1) "have I seen this before"?
+
+export function addNotification(notification: Notification): void {
+  notifications.push(notification);
+  notifiedOrderIds.___(notification.orderId);  // record it
+}
+
+export function getNotifications(): Notification[] {
+  return notifications;
+}
+
+export function hasNotified(orderId: string): boolean {
+  return notifiedOrderIds.___(orderId);  // check it
+}
+</code></pre>
+</div>
+
+<div class="exercise">
+<h3>2. <span class="file">notification-service/src/rabbitmq/consumers/orderNotificationConsumer.ts</span></h3>
+<p>
+Before building and sending the notification, check whether this order was already
+handled. If so, log it and <code>ack</code> anyway — a duplicate isn't a failure:
+</p>
+<pre><code>const order: Order = JSON.parse(msg.content.toString());
+
+if (___(order.orderId)) {
+  console.log(`DUPLICATE → skipping already-notified orderId=${order.orderId}`);
+  channel.ack(msg);
+  return;
+}
+
+const notification: Notification = { ... };  // unchanged
+</code></pre>
+<p class="ask-agent">
+Don't forget the import for whatever function you named in step 1. Ask me if you're
+unsure whether the check belongs before or after building the <code>notification</code>
+object — think about which order avoids doing wasted work.
+</p>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+  <li><code>docker-compose up -d && npm start</code></li>
+  <li><code>POST /api/v1/inventory/toggle-fail</code> → force failures ON</li>
+  <li><code>POST /api/v1/orders</code> — this one will retry via the parking lot
+    every 8 seconds.</li>
+  <li>Watch <code>notification-service</code>'s logs: the <strong>first</strong>
+    delivery should send normally, but every subsequent delivery of the <em>same</em>
+    <code>order.placed</code> event (from each retry cycle) should now log
+    <code>DUPLICATE → skipping</code> instead of sending another email.</li>
+  <li><code>GET /api/v1/notifications</code> — confirm only <strong>one</strong>
+    entry exists for that <code>orderId</code>, no matter how many times inventory
+    retried.</li>
+</ol>
+
+<div class="win">
+notification-service now behaves correctly under RabbitMQ's real delivery guarantee,
+instead of accidentally relying on "it'll probably only arrive once."
+</div>
+
+<h2>Next up</h2>
+<p>
+This was the last item flagged as a concrete, known gap. Worth a conversation on
+where <a href="../MISSION.md">MISSION.md</a> goes from here — the "out of scope" list
+(clustering, HA, deployment) is one direction, or observability (queue depth /
+consumer lag) is another. Ask me anything about idempotency first, including the
+in-memory-`Set` limitation (it resets if notification-service restarts — worth
+naming as a real, current limitation of this fix, not something to silently ignore).
+</p>
+
+<div class="nav">
+  <a href="../GLOSSARY.md">Glossary</a> ·
+  <a href="../MISSION.md">Mission</a> ·
+  <a href="0003-publisher-confirms.html">&larr; Lesson 3</a>
+</div>
+
+</body>
+</html>

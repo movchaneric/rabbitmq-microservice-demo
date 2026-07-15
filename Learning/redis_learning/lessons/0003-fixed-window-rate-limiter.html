@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Redis Lesson 3 — Fixed Window Rate Limiter</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<script src="../../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>Redis Lesson 3: Fixed Window Rate Limiter</h1>
+<p class="subtitle">Same commands as Lesson 2's debug route — now wired as real allow/deny logic in front of order placement</p>
+
+<h2>Where you are</h2>
+<p>
+Lesson 2's <code>/api/v1/_debug/redis-demo</code> route already does the entire mechanical
+core of a fixed-window rate limiter: <code>SET ... NX EX</code> to start a window exactly
+once, <code>INCR</code> to count within it. It just doesn't <em>decide</em> anything yet —
+it always returns 200 and lets the request through no matter how high <code>count</code>
+climbs. This lesson turns that into Express middleware that actually rejects requests with
+a <code>429</code>, mounted in front of <code>POST /api/v1/orders</code> — the real
+order-placement route.
+</p>
+
+<h2>The concept: fixed window, and its one well-known flaw</h2>
+<p>
+Fixed window rate limiting has two common variants, both "fixed" in the sense that a
+window has a hard start and end and the counter simply resets when it ends:
+</p>
+<ul>
+<li><strong>Clock-aligned windows</strong> — the window is tied to the wall clock (e.g.
+"the current calendar minute"), typically via a key that encodes the bucket:
+<code>rate:${id}:${Math.floor(Date.now() / 1000 / windowSeconds)}</code>. Every client
+sharing that time bucket resets at the same instant.</li>
+<li><strong>Per-client windows from first request</strong> — the window starts whenever
+<em>that specific client's</em> counter key is first created, and ends
+<code>windowSeconds</code> later via TTL. This is exactly what <code>SET ... NX EX</code>
+gives you for free: no bucket math, no key rotation, Redis expires the key and the next
+request just recreates it.</li>
+</ul>
+<p>
+You're building the second kind — it's the natural fit for the commands Lesson 2 already
+established, and it's what most simple app-level rate limiters actually ship. The
+tradeoff to know either way, because it's the reason sliding window (next lesson) exists:
+</p>
+<div class="callout">
+<strong>The boundary-burst problem:</strong> imagine <code>MAX_REQUESTS = 5</code>,
+<code>WINDOW_SECONDS = 10</code>. A client sends 5 requests at t=9.9s (right before its
+window resets), then the window flips at t=10s, and it immediately sends 5 more at
+t=10.1s. That's 10 requests inside a 0.2 second span, and the limiter allowed every single
+one — each window individually stayed within its own limit, but nothing bounds the rate
+<em>across</em> the boundary between two windows. Fixed window guarantees "at most N per
+window," not "at most N per any N-second span." Keep this in mind; it's exactly what
+sliding window fixes.
+</div>
+<p class="citation">
+Primary source: <a href="https://redis.io/glossary/rate-limiting/">Redis Docs — Rate limiting</a>,
+"Fixed window" section for the algorithm and its boundary-burst tradeoff.
+</p>
+
+<h2>Check your understanding</h2>
+
+<div class="quiz-q" data-answer="first">
+  <p class="prompt">Q1. In the variant you're building, what starts a given client's window — a shared clock-aligned boundary, or the timestamp of that client's ___ request?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "first"</strong> — <code>SET ... NX</code> only succeeds once per
+    window, on whichever request happens to arrive first after the key expired. Every
+    client's window boundary is its own, not shared with any other client.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="greater than">
+  <p class="prompt">Q2. After <code>INCR</code> runs, its return value already includes the current request. If <code>MAX_REQUESTS = 5</code>, should the block-condition compare the count as ___ ___ (not ≥) 5?</p>
+  <input type="text" placeholder="two words">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "greater than"</strong> — requests 1 through 5 should all be
+    allowed (count reaches 5 on the 5th, still fine), and only the 6th request, where
+    count becomes 6, should be blocked. <code>count &gt; MAX_REQUESTS</code>, not <code>&gt;=</code>.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="boundary">
+  <p class="prompt">Q3. What's the name (used above) for the fixed-window flaw where a client can burst up to 2x its limit right across a window's edge?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "boundary"</strong> — the boundary-burst problem. Both windows
+    individually enforce the limit; nothing bounds the combined rate across the seam
+    between them.
+  </div>
+</div>
+
+<h2>The exercise</h2>
+<p>
+Two files. Blanks only where a real decision needs to be made — fill them in using what
+you just read, not by guessing syntax.
+</p>
+
+<div class="exercise">
+<h3>1. <span class="file">gateway/src/redis/rateLimiter.ts</span> (new file)</h3>
+<pre><code>import { Request, Response, NextFunction } from 'express';
+import { redisClient } from './client';
+
+const MAX_REQUESTS = ___;    // requests allowed per window — pick something small enough to trigger a 429 by hand
+const WINDOW_SECONDS = ___;  // window length in seconds — pick something short enough to test without waiting forever
+
+export async function fixedWindowRateLimiter(req: Request, res: Response, next: NextFunction) {
+  const key = `rate-limit:orders:${___}`;  // what identifies "the same client" across requests here?
+
+  const [, count] = await redisClient.multi()
+    .set(key, '0', { EX: ___, NX: true })
+    .incr(key)
+    .exec();
+
+  if (count > ___) {
+    const ttl = await redisClient.ttl(key);
+    res.set('Retry-After', String(ttl));
+    return res.status(___).json({
+      error: 'Too Many Requests',
+      retryAfterSeconds: ttl,
+    });
+  }
+
+  ___;  // count is within limit — let the request continue to the proxy
+}
+</code></pre>
+<p>Notes on the blanks that aren't just "fill in a number":</p>
+<ul>
+<li><strong>The client identifier in <code>key</code></strong> — nothing in this repo
+authenticates callers, so there's no user ID to key on. What does every incoming HTTP
+request give you, with no auth required, that's at least a reasonable per-caller
+identifier for a demo like this? (Express puts it on <code>req</code> directly.)</li>
+<li><strong>The status code</strong> — this is a named HTTP status with its own constant
+meaning "too many requests," not a generic 4xx. Look it up if you don't have it memorized;
+it's the one this whole lesson has been building toward.</li>
+</ul>
+</div>
+
+<div class="exercise">
+<h3>2. <span class="file">gateway/src/index.ts</span> (wire it in front of order placement)</h3>
+<p>
+Import <code>fixedWindowRateLimiter</code>, then mount it <strong>before</strong> the
+existing orders proxy <code>app.use(...)</code> block — order of <code>app.use</code>
+calls is execution order in Express, and a rejected request must never reach the proxy.
+</p>
+<pre><code>app.use('/api/v1/orders', (req, res, next) => {
+  if (req.method !== ___) {
+    return next();  // only POST (order placement) gets rate-limited — GET lookups pass straight through
+  }
+  return fixedWindowRateLimiter(req, res, next);
+});
+
+// existing app.use(createProxyMiddleware({ ...orders... })) stays right after this, unchanged
+</code></pre>
+<p>
+Why check the method <em>inside</em> a wrapper here instead of teaching
+<code>fixedWindowRateLimiter</code> itself about methods: the limiter's job is "count and
+decide," not "know which routes it applies to" — keeping that logic in the mount point
+means the same middleware could guard a different method-specific route later without
+touching <code>rateLimiter.ts</code> at all.
+</p>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+  <li>Restart <code>gateway</code> (Redis and the rest of the stack can stay up).</li>
+  <li>Fire <code>POST http://localhost:3000/api/v1/orders</code> with a JSON body like
+    <code>{"productId": "p1", "quantity": 1, "customerEmail": "a@b.com"}</code>,
+    repeatedly and quickly — past <code>MAX_REQUESTS</code>. A shell loop or hammering
+    the button in a REST client both work.</li>
+  <li>Confirm the first <code>MAX_REQUESTS</code> calls return <code>201</code> (or
+    whatever order-service normally replies), and every call after that returns
+    <code>429</code> with a <code>Retry-After</code> header and a body containing
+    <code>retryAfterSeconds</code>.</li>
+  <li>Confirm <code>GET /api/v1/orders</code> is <em>never</em> rate-limited, no matter
+    how many times you call it — proving the method check actually scopes this to order
+    placement only.</li>
+  <li>Wait past <code>WINDOW_SECONDS</code>, then hit <code>POST</code> again — it should
+    succeed, proving the window actually reset rather than staying blocked forever.</li>
+</ol>
+
+<div class="win">
+You now have a real, working fixed-window rate limiter guarding order placement across
+however many <code>gateway</code> instances might be running — because the counter lives
+in Redis, not in any one process's memory. You've also felt its one real weakness
+first-hand (or can reason about it precisely), which is exactly the gap the next lesson
+closes.
+</div>
+
+<h2>Next up</h2>
+<p>
+Redis Lesson 4: <strong>sliding window</strong> using sorted sets — fixing the
+boundary-burst problem you just read about (and can now go verify yourself, if you want,
+by bursting right at a window edge) by tracking individual request timestamps instead of
+one blunt counter. After that: <strong>token bucket</strong>, so all three algorithms exist
+as working code you can compare directly instead of just descriptions.
+</p>
+
+<div class="nav">
+  <a href="0002-client-wiring.html">&larr; Lesson 2</a> ·
+  <a href="../MISSION.md">Redis Mission</a>
+</div>
+
+</body>
+</html>

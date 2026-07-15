@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 1 — API-Key Authentication</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+
+<h1>Lesson 1 — Close the front door</h1>
+<p class="subtitle">API-key authentication: identify the caller before anything else runs.</p>
+
+<p>
+Right now every route on your gateway is wide open. Anyone who can reach
+<code>localhost:3000</code> can place orders, flip inventory into failure mode, or read
+the dead-letter queue. An enterprise gateway's <em>first</em> job is to decide
+<strong>who is calling</strong> before a request touches a backend. This lesson adds the
+simplest form of that gate — an <strong>API key</strong> — and sets up everything the next
+lesson needs to meter each caller individually.
+</p>
+
+<div class="win">
+By the end, a request with no key (or a bad key) gets a <code>401</code> and never reaches
+a backend. A request with a valid key sails through <em>and</em> arrives at your rate
+limiter carrying the caller's identity — the hook Lesson 2 turns into per-caller usage plans.
+</div>
+
+<h2>The one idea that trips everyone up</h2>
+
+<p>
+An API key is <strong>not authentication</strong>. It identifies <em>which application</em>
+is calling so you can meter and throttle it — it does not prove the caller is who they say
+they are. AWS says this in bold in their own docs:
+</p>
+
+<blockquote>
+"Don't use API keys for authentication or authorization to control access to your APIs …
+API keys shouldn't include confidential information; clients typically transmit them in
+headers that can be logged."
+</blockquote>
+<p class="citation">
+— AWS, <a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-api-usage-plans.html">Usage plans and API keys for REST APIs</a>
+</p>
+
+<p>
+That is exactly why you chose <strong>"both, in sequence."</strong> The API key answers
+<em>"which app is this?"</em> (metering, tiers, quotas). Later, JWT will answer
+<em>"which user is this, and can I trust it?"</em> (real authentication). Today we build
+the first one — and we're honest about what it is.
+</p>
+
+<table>
+<tr><th>Concern</th><th>Question it answers</th><th>Tool</th></tr>
+<tr><td>Identification / metering</td><td>Which <em>app</em> is calling?</td><td>API key (this lesson)</td></tr>
+<tr><td>Authentication</td><td>Is this really that <em>user</em>?</td><td>JWT (Phase B)</td></tr>
+<tr><td>Authorization</td><td>May this caller do <em>this</em>?</td><td>Scopes / roles (later)</td></tr>
+</table>
+
+<h2>How AWS models it (our reference design)</h2>
+
+<ul>
+<li>The client sends the key in a header. AWS's default header name is <code>x-api-key</code>
+— we'll use the same, so your gateway speaks the same dialect as a real one.</li>
+<li>The gateway looks the key up in a <strong>registry</strong>. A hit maps the key to an
+identity (an app name, and — next lesson — a <em>usage plan</em>). A miss is rejected.</li>
+<li>A missing/unknown key is rejected <strong>before</strong> routing, throttling, or
+validation — auth is the outermost layer.</li>
+</ul>
+
+<div class="callout">
+<strong>401 vs 403 — pick the right one.</strong>
+<code>401 Unauthorized</code> means <em>"I don't know who you are"</em> — no key, or a key
+I don't recognize. That's this lesson. <code>403 Forbidden</code> means <em>"I know who you
+are, but you're not allowed to do this"</em> — that's an authorization decision for later.
+A <code>401</code> should carry a <code>WWW-Authenticate</code> header naming the scheme.
+See the <a href="../GLOSSARY.md">glossary</a>.
+</div>
+
+<h2>Check your grip before you build</h2>
+
+<div class="quiz-q" data-answer="x-api-key">
+<p class="prompt">Which request header does AWS API Gateway use by default for the API key?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+<code>x-api-key</code>. Using the same name means clients written against a real AWS
+gateway would work against yours unchanged.
+</div>
+</div>
+
+<div class="quiz-q" data-answer="401 unknown, 403 not allowed">
+<p class="prompt">A caller sends a key you don't recognize. 401 or 403 — and why?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+<strong>401.</strong> An unknown key means you can't identify the caller at all — "I don't
+know who you are." 403 is for a caller you <em>have</em> identified but who isn't permitted
+to do the thing they asked.
+</div>
+</div>
+
+<div class="quiz-q" data-answer="identifies the app, not authentication">
+<p class="prompt">In one sentence: why is a valid API key <em>not</em> proof of authentication?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+Because the key only says <em>which application</em> is calling (for metering/throttling) —
+it travels in a loggable header and anyone who copies it can present it. It doesn't verify
+the caller's identity the way a signed token does.
+</div>
+</div>
+
+<h2 id="exercise">Your turn — build the authorizer</h2>
+
+<p>
+You write all the code (that's the rule). We'll work the blanks one at a time in chat, then
+you'll get a <code>YOUR_TURN_1.md</code> with the finished version to type in. Here's the
+shape and the design decisions — not the answers.
+</p>
+
+<div class="exercise">
+<h3>Step 1 — a key registry</h3>
+<p>
+Create <span class="file">gateway/src/auth/apiKeyRegistry.ts</span>. For this lesson the
+registry is a plain in-memory map: <code>apiKey → { appName, plan }</code>, seeded from an
+env var (e.g. <code>API_KEYS</code>) so keys aren't hard-coded in source. Export a
+<code>lookup(key)</code> that returns the identity or <code>undefined</code>.
+</p>
+<p class="citation">
+Why in-memory now? It keeps this lesson to one idea. In <strong>Lesson 2</strong> the
+registry moves to <strong>Redis</strong> — because per-key throttle and quota counters need
+a store shared across gateway instances, and that migration is itself the lesson. Don't
+over-build today.
+</p>
+<pre><code>// apiKeyRegistry.ts  (skeleton — you fill the blanks)
+export interface Caller {
+  appName: string;
+  plan: string;        // "free" | "pro" — used in Lesson 2
+}
+
+// Parse process.env.API_KEYS into a Map&lt;string, Caller&gt;.
+// Suggested env format:  key1:appA:free,key2:appB:pro
+const registry = /* ??? build the Map from the env string */;
+
+export function lookup(apiKey: string): Caller | undefined {
+  return /* ??? */;
+}</code></pre>
+</div>
+
+<div class="exercise">
+<h3>Step 2 — the authorizer middleware</h3>
+<p>
+Create <span class="file">gateway/src/auth/apiKeyAuth.ts</span>: an Express middleware that
+reads the <code>x-api-key</code> header, looks it up, and either rejects with
+<code>401</code> or attaches the caller to the request and calls <code>next()</code>.
+You've written middleware factories before (your token bucket) — same muscle.
+</p>
+<pre><code>// apiKeyAuth.ts  (skeleton)
+import { Request, Response, NextFunction } from "express";
+import { lookup } from "./apiKeyRegistry";
+
+export function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
+  const key = /* ??? read the header (case-insensitive) */;
+
+  if (!key /* ??? or not found */) {
+    res.set("WWW-Authenticate", /* ??? name the scheme */);
+    return res.status(/* ??? */).json({ error: "Unauthorized" });
+  }
+
+  // Attach identity so later middleware (rate limiter) can key on it.
+  (req as any).caller = /* ??? the looked-up Caller */;
+  next();
+}</code></pre>
+<p class="citation">
+Attaching to <code>req</code> is how Express middlewares hand data down the chain. Cleaner
+than <code>as any</code> is augmenting the Express <code>Request</code> type — a good thing
+to ask me about when you get there.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 3 — wire it in, outermost</h3>
+<p>
+In <span class="file">gateway/src/index.ts</span>, mount <code>apiKeyAuth</code> so it runs
+<strong>before</strong> the rate limiters and proxies. Think about scope: should it guard
+every <code>/api/v1</code> route, or all of them plus leave a health check open? Which
+<code>app.use(...)</code> position gives you "auth first, always"?
+</p>
+</div>
+
+<div class="win">
+<strong>Verify it yourself</strong> (you run these): with the service up, a
+<code>curl</code> to <code>/api/v1/orders</code> <em>without</em> a key should return
+<code>401</code>; the same request <em>with</em> a valid <code>x-api-key</code> should behave
+exactly as before. That's the whole win: the door is closed to strangers and unchanged for
+holders of a key.
+</div>
+
+<h2>Where this points next</h2>
+<p>
+You'll finish Lesson 1 holding a <code>req.caller</code> on every allowed request. Lesson 2
+spends it: move the registry to Redis, then re-key your existing token bucket from
+<code>req.ip</code> to <code>req.caller</code> and add a daily <strong>quota</strong> — i.e.
+AWS <strong>usage plans</strong>, built on the throttle you already wrote.
+</p>
+
+<h2>Read this (primary source)</h2>
+<p>
+Read the first two sections ("What are usage plans and API keys?" and "Best practices") of
+AWS's <a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-api-usage-plans.html"><strong>Usage plans and API keys for REST APIs</strong></a>.
+It's short, and it's the exact model we're cloning. Notice how hard they push the "keys are
+not auth" point — that's the whole reason for Phase B. More links in
+<a href="../RESOURCES.md">RESOURCES.md</a>.
+</p>
+
+<p class="ask-agent">
+Stuck on a blank, or want to go deeper (typed <code>Request</code> augmentation, constant-time
+key comparison, where the registry should really live)? Ask me — I'm your teacher for this,
+and these tangents are often where the real understanding is.
+</p>
+
+<div class="nav">
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a> ·
+<a href="../RESOURCES.md">Resources</a> ·
+Lesson 1 of the enterprise-gateway track · Next → Usage plans (per-caller throttle + quota)
+</div>
+
+<script src="../../assets/quiz.js"></script>
+</body>
+</html>

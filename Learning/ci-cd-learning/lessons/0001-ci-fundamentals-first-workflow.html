@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CI/CD Lesson 1 — CI Fundamentals &amp; Your First Workflow</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<script src="../../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>CI/CD Lesson 1: CI Fundamentals &amp; Your First Workflow</h1>
+<p class="subtitle">Tied to mission: give <code>order-service</code> its first automated test gate</p>
+
+<h2>Where you are</h2>
+<p>
+Right now, nothing in this repo runs automatically. There are five services
+(<code>gateway</code>, <code>order-service</code>, <code>inventory-service</code>,
+<code>notification-service</code>, <code>dead-letter-service</code>), zero tests, zero
+Dockerfiles, and zero pipelines. Every check you've ever done on this code — does it
+build, does it work — you did by hand, by running it yourself. This lesson starts
+fixing that for exactly one service, <code>order-service</code>, before scaling the
+pattern to the other four in a later lesson.
+</p>
+
+<h2>CI and CD are two different things</h2>
+<p>
+It's easy to say "CI/CD" as one word. They're not one thing, and conflating them is a
+common source of confusion once a pipeline has both:
+</p>
+<ul>
+<li><strong>CI (Continuous Integration)</strong> answers: <em>does this change actually
+work?</em> Every push, every PR, automatically build it and run its tests. CI's job
+ends there — it doesn't put anything anywhere.</li>
+<li><strong>CD (Continuous Deployment)</strong> answers: <em>should this change go
+live, and did it?</em> It only makes sense to run <em>after</em> CI has already said
+yes. A workflow can run CI on every branch, but only run CD when the branch is
+<code>main</code> <em>and</em> CI succeeded.</li>
+</ul>
+<p>
+This lesson is entirely CI. CD (deploying to Render) comes once every service already
+has a real, trustworthy CI gate — there's nothing worth auto-deploying yet, because
+nothing is verified yet.
+</p>
+
+<h2>The concept: anatomy of a GitHub Actions workflow</h2>
+<p>
+A <strong>workflow</strong> is a YAML file in <code>.github/workflows/</code>. GitHub
+watches for an <strong>event</strong> (a <code>push</code>, a <code>pull_request</code>,
+etc.) and, when one matches, runs the workflow. A workflow contains one or more
+<strong>jobs</strong>; each job runs on its own fresh, single-use <strong>runner</strong>
+(a VM GitHub spins up and throws away when the job ends — declared via
+<code>runs-on: ubuntu-latest</code>). Inside a job, <strong>steps</strong> run in order
+on that same machine: a step is either a plain shell command (<code>run:</code>) or a
+call to a packaged, reusable <strong>action</strong> someone else wrote
+(<code>uses: actions/checkout@v4</code>).
+</p>
+<div class="callout">
+<strong>Why "fresh runner" matters:</strong> every job starts from a blank machine —
+no repo checked out, no dependencies installed, nothing left over from the last run.
+That's why the very first step in almost every job is <code>actions/checkout</code>
+(get the repo's code onto this machine at all) — CI isn't running against your local
+filesystem, it's running against a clean checkout of exactly what you pushed.
+</div>
+<p class="citation">
+Primary source — read this before the exercise:
+<a href="https://docs.github.com/en/actions/get-started/understand-github-actions">GitHub Docs — Understanding GitHub Actions</a>.
+Full annotated example: <a href="../reference/github-actions-anatomy.html">this workspace's own cheat sheet</a>.
+</p>
+
+<h2>Check your understanding</h2>
+<p>Three short-answer questions, one word each. Type an answer, hit Check, then compare.</p>
+
+<div class="quiz-q" data-answer="step">
+  <p class="prompt">Q1. What's the smallest unit inside a job — a single shell command or action call?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "step"</strong> — steps in a job run in order, on the same
+    runner, sharing its filesystem (so a later step can see files an earlier step
+    created).
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="event">
+  <p class="prompt">Q2. What's the general term for the thing that causes a workflow to start running at all (push, pull_request, schedule, ...)?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "event"</strong> — declared under a workflow's <code>on:</code>
+    key. No matching event, no run — not even a skipped one, it just never triggers.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="action">
+  <p class="prompt">Q3. What do you call a reusable, packaged step someone else wrote and published, that you reference with `uses:` instead of hand-writing the equivalent shell commands?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "action"</strong> — e.g. <code>actions/checkout</code>,
+    <code>actions/setup-node</code>. This is also the "Actions" in "GitHub Actions":
+    the whole system is named after this building block.
+  </div>
+</div>
+
+<h2>Before the exercise: there's nothing to test yet</h2>
+<p>
+<code>order-service</code> has zero tests. A CI workflow that runs zero tests is a
+green checkmark that means nothing — so before writing any YAML, you're writing one
+real test. The test target: <code>order-service/src/data.ts</code>, which already
+exists and has no I/O (no RabbitMQ, no Redis, no HTTP) — the cleanest possible thing
+to unit-test first.
+</p>
+<pre><code>// order-service/src/data.ts (already exists, unchanged)
+export function addOrder(order: Order): void {
+  orders.push(order);
+}
+
+export function getOrders(): Order[] {
+  return orders;
+}
+</code></pre>
+<p>
+Test framework choice: <strong>Vitest</strong>. It's TypeScript-native (no separate
+`ts-jest` config step), fast, and has become the default choice for new TypeScript
+projects — a reasonable professional default without pulling in Jest's extra
+configuration surface for a project this size.
+</p>
+
+<h2>The exercise</h2>
+<p>Three files. Blanks (<code>___</code>) are yours to fill using the concepts above.</p>
+
+<div class="exercise">
+<h3>1. <span class="file">order-service/package.json</span></h3>
+<p>Add Vitest as a dev dependency and a test script:</p>
+<pre><code>npm install --save-dev vitest --prefix order-service</code></pre>
+<p>Then add this to the <code>"scripts"</code> object:</p>
+<pre><code>"test": "___"</code></pre>
+<p class="ask-agent">What command actually runs Vitest's test suite once (not in
+watch mode)? Check <a href="https://vitest.dev/guide/cli">Vitest's own CLI docs</a> if
+unsure, or ask me.</p>
+</div>
+
+<div class="exercise">
+<h3>2. <span class="file">order-service/src/data.test.ts</span> (new file)</h3>
+<p>A real test — not a placeholder. It needs to prove two things: an order you add
+comes back out of <code>getOrders()</code>, and it comes back with the same
+<code>orderId</code> you put in.</p>
+<pre><code>import { describe, it, expect } from "vitest";
+import { addOrder, getOrders } from "./data";
+
+describe("data", () =&gt; {
+  it("___", () =&gt; {
+    const order = {
+      orderId: "___",
+      productId: "sku-1",
+      quantity: 1,
+      customerEmail: "test@example.com",
+      timestamp: new Date().toISOString(),
+    };
+
+    ___(order);
+
+    const orders = ___();
+    expect(orders).___(
+      expect.objectContaining({ orderId: "___" })
+    );
+  });
+});
+</code></pre>
+<p class="ask-agent">The first blank is the test's description string (say what
+it's checking, not just "test 1"). The matcher blank is a Vitest/Jest array
+assertion — one exists specifically for "does this array contain an object matching
+this shape." Ask me if you can't find it.</p>
+</div>
+
+<div class="exercise">
+<h3>3. <span class="file">.github/workflows/order-service-ci.yml</span> (new file, repo root)</h3>
+<p>Use the annotated skeleton in the
+<a href="../reference/github-actions-anatomy.html">reference cheat sheet</a> as your
+model. Requirements, not exact syntax — work out the YAML yourself:</p>
+<ul>
+<li>Name it something recognizable in the Actions tab.</li>
+<li>Triggers on <code>push</code> <em>and</em> <code>pull_request</code>, but only when
+files under <code>order-service/</code> actually changed (this is the path filter —
+there's no reason to run this workflow because someone edited <code>gateway/</code>).</li>
+<li>One job, on the standard Ubuntu runner.</li>
+<li>Steps, in order: check out the repo, set up Node (pick a version — check
+<code>order-service/package.json</code>'s <code>devDependencies</code> for a hint of
+what this repo already assumes), install dependencies with <code>npm ci</code> (not
+<code>npm install</code> — ask me why if you don't already know), run the test script.</li>
+<li>All commands need to run <em>from</em> <code>order-service/</code>, not the repo
+root — the reference sheet shows the YAML key for that.</li>
+</ul>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+<li>Run the test locally first, before ever pushing: <code>npm test --prefix order-service</code>.
+It should pass.</li>
+<li>Commit and push your branch (or open a PR) and watch the <strong>Actions</strong>
+tab on GitHub — you should see a run start within a few seconds.</li>
+<li>Deliberately break it: comment out the <code>addOrder(order);</code> line in your
+test's arrange step (not the real <code>data.ts</code>), push again, and confirm the
+workflow run actually turns red. A CI check that can't fail isn't testing anything.</li>
+<li>Undo the deliberate break, push again, confirm it's green.</li>
+<li>Edit a file in a <em>different</em> service (e.g. add a comment in
+<code>gateway/src/index.ts</code>), push, and confirm this workflow does <strong>not</strong>
+run at all — that's the path filter working.</li>
+</ol>
+
+<div class="win">
+<code>order-service</code> now has a real, automated check that runs on every push and
+PR, fails when the code is actually broken, and stays out of the way when unrelated
+services change. This is the exact shape every other service's CI will follow.
+</div>
+
+<h2>Next up</h2>
+<p>
+Per the mission's rough phase plan: <strong>Docker next</strong> — a multi-stage
+<code>Dockerfile</code> for <code>order-service</code>, built and run locally, before
+CI ever touches an image. Ask me anything about this lesson first, or about why any of
+the workflow keys work the way they do — I'm your teacher here, not just a code
+generator.
+</p>
+
+<div class="nav">
+Reference: <a href="../reference/github-actions-anatomy.html">GitHub Actions Anatomy cheat sheet</a> ·
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a>
+</div>
+
+</body>
+</html>

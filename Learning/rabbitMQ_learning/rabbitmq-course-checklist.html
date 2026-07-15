@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RabbitMQ Course Checklist — Udemy vs. This Project</title>
+<link rel="stylesheet" href="../../assets/style.css">
+<style>
+  .status-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .status-row:last-child { border-bottom: none; }
+  .badge {
+    flex: 0 0 auto;
+    font-family: monospace;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    margin-top: 0.15rem;
+    white-space: nowrap;
+  }
+  .badge.done { background: var(--win-bg); color: #2f5c22; border: 1px solid var(--win-border); }
+  .badge.missing { background: #f7e9e6; color: var(--accent); border: 1px solid #d9b3a8; }
+  .badge.partial { background: #fbf3d9; color: #7a5c00; border: 1px solid #d9c27a; }
+  .badge.na { background: var(--code-bg); color: var(--muted); border: 1px solid var(--rule); }
+  .item-body strong.title { display: block; }
+  .item-body .note { font-size: 0.88rem; color: var(--muted); margin-top: 0.15rem; }
+  .section-summary {
+    font-size: 0.85rem;
+    color: var(--muted);
+    font-family: monospace;
+    margin-top: -0.5rem;
+  }
+  .setaside {
+    font-size: 0.9rem;
+    color: var(--muted);
+    font-style: italic;
+    margin-top: 0.5rem;
+  }
+</style>
+</head>
+<body>
+
+<h1>RabbitMQ Course Checklist</h1>
+<p class="subtitle">Udemy curriculum vs. what's actually been built and verified in this project</p>
+
+<p>
+This lines up the Udemy course outline against <a href="JOURNEY.md">JOURNEY.md</a> /
+<a href="MISSION.md">MISSION.md</a>, so we can see at a glance what's covered before
+picking this back up later. <strong>Publish/Subscribe (fanout)</strong> is intentionally
+left out of this checklist for now, per your call.
+</p>
+
+<h2>RabbitMQ Patterns</h2>
+<p class="section-summary">4 done · 3 missing (of 7 tracked; fanout set aside)</p>
+
+<div class="status-row">
+  <span class="badge done">DONE</span>
+  <div class="item-body">
+    <strong class="title">Common Patterns (overview)</strong>
+    <div class="note">Absorbed implicitly by building and extending the demo across every lesson.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge done">DONE</span>
+  <div class="item-body">
+    <strong class="title">Simple Queue</strong>
+    <div class="note">The basic publish → queue → consume path underlies the whole demo (e.g. order-service → q.orders.inventory).</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge done">DONE</span>
+  <div class="item-body">
+    <strong class="title">Work Queues / Task Queues (fair dispatch)</strong>
+    <div class="note">This is exactly what <a href="lessons/0002-prefetch-qos.html">Lesson 2 (Prefetch/QoS)</a> covered and live-tested with a 6-order burst.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">Publish/Subscribe based on Routing (direct exchange)</strong>
+    <div class="note">Never built as its own exercise — the demo went straight to a topic exchange. A direct exchange with plain routing keys (no wildcards) is a distinct, simpler pattern worth doing on its own.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge done">DONE</span>
+  <div class="item-body">
+    <strong class="title">Publish/Subscribe based on Topics</strong>
+    <div class="note">The baseline topology (built before this teaching workspace) already uses a topic exchange (<code>ex.orders</code>) with routing keys like <code>order.placed</code>.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">Publish/Subscribe based on Headers</strong>
+    <div class="note">A headers exchange (routing by message header match instead of routing key) has never been used anywhere in this project.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">RPC — Remote Procedure Call</strong>
+    <div class="note">No request/reply pattern (<code>correlationId</code> + <code>replyTo</code> queue) exists anywhere — every flow so far is fire-and-forget pub/sub, never "ask and wait for an answer."</div>
+  </div>
+</div>
+
+<p class="setaside">Set aside for now: Publish/Subscribe (fanout) — not tracked in this checklist.</p>
+
+<h2>RabbitMQ Advanced Hands-On</h2>
+<p class="section-summary">2 done · 1 partial · 5 missing · 1 not applicable (of 9)</p>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">Custom Exchanges — Consistent Hash Exchange</strong>
+    <div class="note">Never used; would need the community <code>rabbitmq-consistent-hash-exchange</code> plugin.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge done">DONE</span>
+  <div class="item-body">
+    <strong class="title">Dead Letter Exchange (DLX)</strong>
+    <div class="note">Already working before this workspace started, then extended in <a href="lessons/0001-delayed-retry-ttl-parking-lot.html">Lesson 1</a>.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge done">DONE</span>
+  <div class="item-body">
+    <strong class="title">Delay Schedule / Delay Publication Model</strong>
+    <div class="note"><a href="lessons/0001-delayed-retry-ttl-parking-lot.html">Lesson 1</a>'s TTL parking lot <em>is</em> this pattern — a no-consumer queue with <code>x-message-ttl</code> used purely to delay delivery.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge partial">PARTIAL</span>
+  <div class="item-body">
+    <strong class="title">Data Safety — Transactions &amp; Publisher Confirms</strong>
+    <div class="note">Publisher Confirms is done (<a href="lessons/0003-publisher-confirms.html">Lesson 3</a>). Classic AMQP transactions (<code>tx.select</code>/<code>tx.commit</code>) were never covered — lower priority, since confirms are the modern, higher-throughput replacement for the same guarantee.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">Vhosts</strong>
+    <div class="note">Everything so far runs in the default vhost — multi-tenant isolation via separate vhosts hasn't come up.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">Policies</strong>
+    <div class="note">Settings like TTL and HA have all been set as per-queue <code>arguments</code> in code, not as broker-level, pattern-matched Policies (which apply to any matching queue/exchange without touching application code).</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">Lazy Queues — memory optimization</strong>
+    <div class="note">Never used; all queues so far keep messages in memory (or classic mirrored/quorum replication) rather than paging to disk to save RAM on very large backlogs.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">Priority Queues</strong>
+    <div class="note">Every queue so far treats all messages equally — <code>x-max-priority</code> and per-message priority has never been used.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge na">N/A</span>
+  <div class="item-body">
+    <strong class="title">NT Service</strong>
+    <div class="note">Windows-native service registration for RabbitMQ. This project runs entirely in Docker — not applicable unless we ever install RabbitMQ natively on Windows.</div>
+  </div>
+</div>
+
+<h2>Distributed Brokers</h2>
+<p class="section-summary">4 done · 5 missing · 1 superseded (of 10)</p>
+
+<div class="status-row">
+  <span class="badge done">DONE</span>
+  <div class="item-body">
+    <strong class="title">Overview</strong>
+    <div class="note">Covered conceptually while building and reasoning through Lessons 6–7.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge done">DONE</span>
+  <div class="item-body">
+    <strong class="title">Cluster Scale-Out</strong>
+    <div class="note"><a href="lessons/0006-clustering-quorum-queues.html">Lesson 6</a> — built and joined the 3-node <code>rabbitmq1/2/3</code> cluster.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">Cluster Scale-In</strong>
+    <div class="note">Never removed a node from a live cluster — only ever killed one to simulate failure, which is a different operation from a clean, deliberate scale-in.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">Shovels</strong>
+    <div class="note">Never used — the plugin that continuously moves messages between queues/brokers (including across separate clusters).</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">Federated Exchange</strong>
+    <div class="note">Never used — loosely coupling exchanges across separate broker clusters (as opposed to the tightly-coupled clustering already built).</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">Federated Queue</strong>
+    <div class="note">Same idea as federated exchanges, applied to queues instead. Not used.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge done">DONE</span>
+  <div class="item-body">
+    <strong class="title">Cluster, Federation, Shovel Summary</strong>
+    <div class="note">Conceptual comparison only (no separate hands-on) — worth revisiting once Shovels/Federation are actually built, to make the comparison concrete instead of theoretical.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge na">SUPERSEDED</span>
+  <div class="item-body">
+    <strong class="title">Highly Available (Mirrored) Queues</strong>
+    <div class="note">The legacy HA mechanism, replaced by Quorum Queues (which this project already uses). Worth knowing it exists and why it was deprecated, but not worth building — quorum queues are the modern answer to the same problem.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge done">DONE</span>
+  <div class="item-body">
+    <strong class="title">Quorum Queues</strong>
+    <div class="note"><a href="lessons/0006-clustering-quorum-queues.html">Lesson 6</a> — live-verified <code>q.orders.inventory</code> survives killing <code>rabbitmq1</code>.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge missing">MISSING</span>
+  <div class="item-body">
+    <strong class="title">Partitions</strong>
+    <div class="note">Never deliberately tested a network partition (split-brain) or configured a <code>cluster_partition_handling</code> mode (e.g. <code>pause-minority</code>). Killing a node (Lesson 6) is not the same failure mode as a partition where all nodes stay up but can't see each other.</div>
+  </div>
+</div>
+
+<h2>Beyond the course</h2>
+<p>Built in this project but not part of the Udemy curriculum at all — client-side concerns the course doesn't cover:</p>
+
+<div class="status-row">
+  <span class="badge done">DONE</span>
+  <div class="item-body">
+    <strong class="title">Connection &amp; Channel Recovery</strong>
+    <div class="note"><a href="lessons/0005-connection-recovery.html">Lesson 5</a> — reconnect-forever logic, later extended to every service.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge done">DONE</span>
+  <div class="item-body">
+    <strong class="title">HAProxy Load Balancer in front of the cluster</strong>
+    <div class="note"><a href="lessons/0007-haproxy-load-balancer.html">Lesson 7</a> — a stable client-facing address with active health checks.</div>
+  </div>
+</div>
+
+<div class="status-row">
+  <span class="badge partial">DEFERRED</span>
+  <div class="item-body">
+    <strong class="title">Idempotent Consumers</strong>
+    <div class="note"><a href="lessons/0004-idempotent-consumers.html">Lesson 4</a> — deliberately paused, not forgotten.</div>
+  </div>
+</div>
+
+<div class="nav">
+  <a href="JOURNEY.md">Learning Journey</a> ·
+  <a href="MISSION.md">Mission</a> ·
+  <a href="../../README.md">README</a>
+</div>
+
+</body>
+</html>
