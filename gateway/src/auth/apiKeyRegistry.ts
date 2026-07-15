@@ -1,15 +1,23 @@
+import { redisClient } from "../redis";
+
 export interface Caller {
   appName: string;
   plan: string; // "free" | "pro"
 }
 
-const registry = new Map<string, Caller>(
-  (process.env.API_KEYS ?? "").split(",").map((entry) => {
-    const [key, appName, plan] = entry.split(":");
-    return [key, { appName, plan }];
-  }),
-);
+const PREFIX = "apiKey";
 
-export function lookup(apiKey: string): Caller | undefined {
-  return registry.get(apiKey);
+export async function seedApiKeys(): Promise<void> {
+  const entries = (process.env.API_KEYS ?? "").split(",");
+  for (const entry of entries) {
+    const [key, appName, plan] = entry.split(":");
+    await redisClient.hSet(`${PREFIX}:${key}`, { appName, plan });
+  }
+}
+
+export async function lookup(apiKey: string): Promise<Caller | undefined> {
+  const hash = await redisClient.hGetAll(`${PREFIX}:${apiKey}`);
+  return Object.keys(hash).length === 0
+    ? undefined
+    : (hash as unknown as Caller);
 }

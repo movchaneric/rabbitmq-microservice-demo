@@ -16,7 +16,7 @@ export function createTokenBucketLimiter(config: TokenBucketConfig) {
     res: Response,
     next: NextFunction,
   ) {
-    const key = `rate-limit:${scope}:bucket:${req.ip}`;
+    const key = `rate-limit:${scope}:bucket:${req.caller?.appName}`;
     const now = Date.now();
 
     const [allowed, tokensRemaining] = (await redisClient.eval(

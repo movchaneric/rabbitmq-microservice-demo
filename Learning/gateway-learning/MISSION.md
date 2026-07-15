@@ -25,8 +25,8 @@ implements it, not just wire up an npm package. The demo's five microservices
 
 ## Roadmap (decided with the user)
 1. **Auth — API keys → usage plans** (Phase A). Identify the caller, then move throttling
-   from per-IP to per-identity + add quotas. *(Lesson 1 done — 2026-07-15. Next: Lesson 2,
-   usage plans.)*
+   from per-IP to per-identity + add quotas. *(Done — Lessons 1–2, 2026-07-15. Next: Lesson
+   3, JWT bearer / Phase B.)*
 2. **Auth — JWT bearer** (Phase B). Layer user authentication on top of app identification.
 3. **Observability.** Structured access logs, correlation/request IDs propagated to
    backends, per-route latency + status.
@@ -58,3 +58,8 @@ implements it, not just wire up an npm package. The demo's five microservices
   `apiKeyAuthMiddleware` built and wired in `gateway/src/index.ts`, mounted before the
   rate limiters. Verified via Postman: no key / unknown key → 401 with `WWW-Authenticate`;
   valid key → passes through unchanged. See `YOUR_TURN_1.md`.
+- **2026-07-15** — Lesson 2 (usage plans: throttle + quota) complete. Registry moved to
+  Redis; token bucket re-keyed from `req.ip` to `req.caller.appName`; new `usagePlanQuota`
+  middleware adds a per-caller daily quota, independent of the throttle. Verified via
+  Postman: separate throttle buckets per caller, separate quota counters per caller. See
+  `YOUR_TURN_2.md`.

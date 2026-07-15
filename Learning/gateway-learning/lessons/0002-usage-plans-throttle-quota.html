@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 2 — Usage Plans</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+
+<h1>Lesson 2 — Spend what Lesson 1 bought you</h1>
+<p class="subtitle">Usage plans: move the throttle from per-IP to per-identity, and add a quota.</p>
+
+<p>
+Your gateway now knows <strong>who</strong> is calling — every request past
+<code>apiKeyAuthMiddleware</code> carries a <code>req.caller</code>. But your token-bucket
+rate limiter hasn't noticed. It still keys on <code>req.ip</code>, exactly as before Lesson
+1. Today you connect the two: throttle <em>by identity</em>, and add the other half of an
+AWS <strong>usage plan</strong> — a <strong>quota</strong>, a volume cap your throttle alone
+can't express.
+</p>
+
+<div class="win">
+By the end: two callers on the <code>free</code> plan each get their own 5-request bucket
+(no more sharing a limit just because they're behind the same corporate NAT) — and a caller
+who's made 100 requests today gets a <code>429</code> with a quota message, even though
+their bucket has tokens to spare.
+</div>
+
+<h2>Throttle vs quota — two different limits, one usage plan</h2>
+
+<table>
+<tr><th>Concern</th><th>Question it answers</th><th>Already built?</th></tr>
+<tr><td>Throttle</td><td>How <em>fast</em> can this caller go right now? (rate + burst)</td><td>Yes — your token bucket, Lessons before this track</td></tr>
+<tr><td>Quota</td><td>How <em>much</em> can this caller do today/this week/this month? (volume)</td><td>No — today's new piece</td></tr>
+</table>
+
+<p>
+AWS binds both to the same usage plan: a token-bucket throttle (rate/burst) <em>and</em> a
+quota (a slow counter with a longer window), both scoped to one API key. A caller can be
+well within their per-second rate and still get rejected because they've used up their
+daily allowance — that's why these are two separate mechanisms, not one.
+</p>
+
+<div class="callout">
+<strong>Why the registry has to move to Redis now.</strong> Lesson 1 kept the registry as
+an in-memory <code>Map</code> on purpose — one gateway process, one map, no problem. A
+quota counter breaks that assumption: if you run more than one gateway instance (which any
+real deployment does, for redundancy), each instance's in-memory counter only sees <em>its
+own</em> slice of traffic. A caller could exhaust their real quota while each instance still
+thinks they're under it. The counter — and the registry that identifies who owns it — has
+to live somewhere every instance shares. That's what Redis is for here.
+</div>
+
+<h2>Check your grip before you build</h2>
+
+<div class="quiz-q" data-answer="throttle is rate/burst, quota is total volume over a longer window">
+<p class="prompt">In one sentence: what's the difference between a throttle and a quota?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+A <strong>throttle</strong> limits how fast requests can arrive (tokens refilling per
+second, with a burst allowance). A <strong>quota</strong> limits total volume over a much
+longer window (e.g. 1,000/day) — a caller can be well under their throttle and still hit
+their quota.
+</div>
+</div>
+
+<div class="quiz-q" data-answer="each instance would undercount, letting a caller exceed their real quota">
+<p class="prompt">Why can't a quota counter live in each gateway instance's own memory, the way Lesson 1's registry did?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+With multiple instances behind a load balancer, each one only sees a fraction of a given
+caller's traffic. An in-memory counter per instance would <strong>undercount</strong> —
+the caller could exceed their real daily total while no single instance's counter shows it.
+The counter needs one shared source of truth, hence Redis.
+</div>
+</div>
+
+<div class="quiz-q" data-answer="many callers behind one ip share a limit unfairly, or one caller across many ips escapes it">
+<p class="prompt">Give one concrete way per-IP throttling misbehaves once you actually know caller identity.</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+Either direction is a real failure: many different callers behind one corporate NAT/proxy
+share a single IP and unfairly share one bucket (one noisy caller starves the rest) — or a
+single caller spread across many IPs (rotating proxies, multiple servers) gets a fresh
+bucket per IP and effectively escapes the limit entirely. Per-identity throttling fixes both.
+</div>
+</div>
+
+<h2 id="exercise">Your turn — build the usage plan</h2>
+
+<p>
+Same rule as Lesson 1: you write the code, I work the blanks with you, then you get a
+<code>YOUR_TURN_2.md</code> once it's verified working. Three moving pieces this time.
+</p>
+
+<div class="exercise">
+<h3>Step 1 — the registry moves to Redis</h3>
+<p>
+Rewrite <span class="file">gateway/src/auth/apiKeyRegistry.ts</span>. Store each key as a
+Redis <strong>hash</strong>: <code>apikey:&lt;key&gt; → { appName, plan }</code>. Keep
+seeding from the same <code>API_KEYS</code> env var (same format as Lesson 1) — but now
+that's a one-time write into Redis at startup, not a value parsed into memory on every
+request.
+</p>
+<pre><code>// apiKeyRegistry.ts (skeleton — you fill the blanks)
+import { redisClient } from "../redis/client";
+
+export interface Caller {
+  appName: string;
+  plan: string;
+}
+
+const PREFIX = "apikey:";
+
+// Call this once at startup, after Redis is connected.
+export async function seedApiKeys(): Promise&lt;void&gt; {
+  const entries = (process.env.API_KEYS ?? "").split(",");
+
+  for (const entry of entries) {
+    const [key, appName, plan] = /* ??? same split as Lesson 1 */;
+    await redisClient.hSet(`${PREFIX}${key}`, /* ??? which fields, and what shape does hSet want? */);
+  }
+}
+
+export async function lookup(apiKey: string): Promise&lt;Caller | undefined&gt; {
+  const hash = await redisClient.hGetAll(`${PREFIX}${apiKey}`);
+  return /* ??? hGetAll returns {} for a key that doesn't exist, not undefined —
+             how do you tell "found" from "not found" here? */;
+}</code></pre>
+<p class="citation">
+<code>lookup</code> is now <code>async</code> — it wasn't before. That ripples: in
+<span class="file">apiKeyAuth.ts</span>, the call site needs <code>await</code>, and the
+middleware function itself needs to become <code>async</code> too. Same contract
+(<code>Caller | undefined</code>), different implementation underneath — the thing I
+flagged would happen back in Lesson 1.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 2 — re-key the throttle</h3>
+<p>
+In <span class="file">gateway/src/redis/tokenBucketRateLimiter.ts</span>, the bucket key
+is currently built from <code>req.ip</code>. Swap it for caller identity.
+</p>
+<p>
+Design question first, before you touch the code: AWS binds one usage plan to
+<strong>one API key</strong> — not to an app name. If two different keys happened to share
+the same <code>appName</code>, should they share a throttle bucket, or get separate ones?
+What does that tell you about which piece of <code>req.caller</code> — or something else
+entirely — the bucket key should use?
+</p>
+<pre><code>// tokenBucketRateLimiter.ts — find this line:
+const key = `rate-limit:${scope}:bucket:${req.ip}`;
+
+// replace req.ip with the right identity value from req.caller</code></pre>
+<p class="citation">
+Both this file and <span class="file">apiKeyAuth.ts</span> now need to read
+<code>req.caller</code>, and both are stuck using <code>(req as any).caller</code> to do
+it. Two files reaching for the same untyped escape hatch is usually the signal it's worth
+fixing at the source — this is a good point to do the typed <code>Request</code>
+augmentation Lesson 1 flagged and deferred, if you want to. Ask me when you get here.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 3 — the quota</h3>
+<p>
+New file: <span class="file">gateway/src/auth/usagePlanQuota.ts</span>. A daily counter per
+caller, compared against a limit that depends on their plan. Same Redis pattern you already
+used in the <code>/api/v1/_debug/redis-demo</code> route (increment + expire) — just
+keyed on caller + day instead of a fixed demo key.
+</p>
+<pre><code>// usagePlanQuota.ts (skeleton — you fill the blanks)
+import { Request, Response, NextFunction } from "express";
+import { redisClient } from "../redis/client";
+
+const DAILY_QUOTA: Record&lt;string, number&gt; = {
+  free: 100,
+  pro: 10000,
+};
+
+export async function usagePlanQuota(req: Request, res: Response, next: NextFunction) {
+  const caller = /* ??? same place apiKeyAuthMiddleware attached it */;
+  const today = /* ??? a string that changes once every 24h — what's a simple one? */;
+  const key = `quota:${/* ??? which identity field, same call you made in Step 2 */}:${today}`;
+
+  const count = await redisClient.incr(key);
+  if (count === 1) {
+    await redisClient.expire(key, /* ??? TTL in seconds — how long should this key live? */);
+  }
+
+  const limit = DAILY_QUOTA[caller.plan] ?? DAILY_QUOTA.free;
+
+  if (count > limit) {
+    return res.status(429).json({
+      error: "Quota Exceeded",
+      limit,
+      /* ??? one more field a caller would want here, so this response is
+                 distinguishable from a throttle 429 */
+    });
+  }
+
+  next();
+}</code></pre>
+<p class="citation">
+Why check <code>count === 1</code> before setting the expiry, instead of setting it every
+time? Think about what would happen to the key's lifetime if you called
+<code>expire</code> on every single request instead of just the first one of the day.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 4 — wire it in</h3>
+<p>
+In <span class="file">gateway/src/index.ts</span>: call <code>seedApiKeys()</code> once at
+startup (after Redis connects, before the server listens), then mount
+<code>usagePlanQuota</code>. One placement question to reason through: your throttle is
+mounted <em>per-route</em> (<code>/api/v1/orders</code> gets its own bucket, separate from
+<code>/api/v1/inventory</code>). Should the quota be per-route too, or one counter per
+caller across the <em>whole</em> API? What does AWS's model — one usage plan, one quota,
+covering every method a key can call — suggest about where <code>app.use(usagePlanQuota)</code>
+belongs relative to <code>apiKeyAuthMiddleware</code> and the per-route throttles?
+</p>
+</div>
+
+<div class="win">
+<strong>Verify it yourself:</strong> with two different <code>x-api-key</code> values from
+your registry, confirm each gets its <em>own</em> token bucket (exhaust one caller's bucket
+with rapid requests — 429 — while the other caller, same route, is unaffected). Then
+temporarily drop <code>DAILY_QUOTA.free</code> to something tiny like <code>3</code>,
+send 4 requests as a free-plan caller, and confirm the 4th comes back <code>429</code> with
+your quota error shape — even with token-bucket capacity still available.
+</div>
+
+<h2>Where this points next</h2>
+<p>
+That's the full usage-plan model: identify (Lesson 1), then throttle + meter by that
+identity (today). Next is <strong>Phase B</strong> — layering real <strong>authentication</strong>
+on top with a JWT bearer token, so the gateway can answer "which <em>user</em>," not just
+"which app," on top of everything you just built.
+</p>
+
+<h2>Read this (primary source)</h2>
+<p>
+Re-read the <a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-request-throttling.html"><strong>Throttle API requests</strong></a>
+doc, this time focused on how <em>quota</em> (requests per day/week/month) is described
+alongside throttle (rate/burst) — same page as Lesson 1's primary source. More in
+<a href="../RESOURCES.md">RESOURCES.md</a>.
+</p>
+
+<p class="ask-agent">
+Stuck on a blank, or want to go deeper (the typed <code>Request</code> augmentation, Redis
+hash vs separate keys for the registry, why <code>INCR</code>+<code>EXPIRE</code> isn't
+perfectly atomic and whether that matters here)? Ask me.
+</p>
+
+<div class="nav">
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a> ·
+<a href="../RESOURCES.md">Resources</a> ·
+Lesson 2 of the enterprise-gateway track · Next → JWT bearer authentication (Phase B)
+</div>
+
+<script src="../../assets/quiz.js"></script>
+</body>
+</html>

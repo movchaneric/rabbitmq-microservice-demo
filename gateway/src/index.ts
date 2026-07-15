@@ -6,11 +6,14 @@ import { fixedWindowRateLimiter } from "./redis/rateLimiter";
 import { slidingWindowRateLimiter } from "./redis/slidingWindowRateLimiter";
 import { createTokenBucketLimiter } from "./redis/tokenBucketRateLimiter";
 import { apiKeyAuthMiddleware } from "./auth/apiKeyAuth";
+import { seedApiKeys } from "./auth/apiKeyRegistry";
+import { usagePlanQuota } from "./auth/usagePlanQuota";
 // import { tokenBucketRateLimiter } from "./redis/tokenBucketRateLimiter";
 
 const app = express();
 
 app.use(apiKeyAuthMiddleware);
+app.use(usagePlanQuota);
 
 // app.use("/api/v1/orders", fixedWindowRateLimiter);
 // app.use("/api/v1/orders", slidingWindowRateLimiter);
@@ -80,6 +83,8 @@ app.get("/api/v1/_debug/redis-demo", async (req, res) => {
 
 async function start() {
   await connectRedis();
+
+  await seedApiKeys();
 
   app.listen(process.env.PORT, () => {
     console.log(`[gateway-serivce] Listening on port ${process.env.PORT}`);
