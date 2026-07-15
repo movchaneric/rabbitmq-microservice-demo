@@ -6,13 +6,16 @@ on:
       service:
         required: true
         type: string
+      path:
+        required: false
+        type: string
 
 jobs:
   test:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ${{ inputs.service }}
+        working-directory: ${{ inputs.path || inputs.service }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,6 +40,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
-          context: ./${{ inputs.service }}
+          context: ./${{ inputs.path || inputs.service }}
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/${{ inputs.service }}:${{ github.sha }}

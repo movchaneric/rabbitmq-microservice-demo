@@ -22,15 +22,15 @@ jobs:
         with:
           filters: |
             order-service:
-              - 'order-service/**'
+              - 'services/order-service/**'
             gateway:
               - 'gateway/**'
             inventory-service:
-              - 'inventory-service/**'
+              - 'services/inventory-service/**'
             notification-service:
-              - 'notification-service/**'
+              - 'services/notification-service/**'
             dead-letter-service:
-              - 'dead-letter-service/**'
+              - 'services/dead-letter-service/**'
 
   order-service:
     needs: changes
@@ -41,6 +41,7 @@ jobs:
     uses: ./.github/workflows/service-ci.yml
     with:
       service: order-service
+      path: services/order-service
 
   gateway:
     needs: changes
@@ -61,6 +62,7 @@ jobs:
     uses: ./.github/workflows/service-ci.yml
     with:
       service: inventory-service
+      path: services/inventory-service
 
   notification-service:
     needs: changes
@@ -71,6 +73,7 @@ jobs:
     uses: ./.github/workflows/service-ci.yml
     with:
       service: notification-service
+      path: services/notification-service
 
   dead-letter-service:
     needs: changes
@@ -81,3 +84,4 @@ jobs:
     uses: ./.github/workflows/service-ci.yml
     with:
       service: dead-letter-service
+      path: services/dead-letter-service
