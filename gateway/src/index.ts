@@ -5,9 +5,12 @@ import { connectRedis, disconnectRedis, redisClient } from "./redis";
 import { fixedWindowRateLimiter } from "./redis/rateLimiter";
 import { slidingWindowRateLimiter } from "./redis/slidingWindowRateLimiter";
 import { createTokenBucketLimiter } from "./redis/tokenBucketRateLimiter";
+import { apiKeyAuthMiddleware } from "./auth/apiKeyAuth";
 // import { tokenBucketRateLimiter } from "./redis/tokenBucketRateLimiter";
 
 const app = express();
+
+app.use(apiKeyAuthMiddleware);
 
 // app.use("/api/v1/orders", fixedWindowRateLimiter);
 // app.use("/api/v1/orders", slidingWindowRateLimiter);

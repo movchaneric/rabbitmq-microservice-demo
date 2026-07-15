@@ -25,7 +25,8 @@ implements it, not just wire up an npm package. The demo's five microservices
 
 ## Roadmap (decided with the user)
 1. **Auth — API keys → usage plans** (Phase A). Identify the caller, then move throttling
-   from per-IP to per-identity + add quotas. *(In progress — Lesson 1.)*
+   from per-IP to per-identity + add quotas. *(Lesson 1 done — 2026-07-15. Next: Lesson 2,
+   usage plans.)*
 2. **Auth — JWT bearer** (Phase B). Layer user authentication on top of app identification.
 3. **Observability.** Structured access logs, correlation/request IDs propagated to
    backends, per-route latency + status.
@@ -53,3 +54,7 @@ implements it, not just wire up an npm package. The demo's five microservices
 ## Revision history
 - **2026-07-13** — Track created. Mission and roadmap set from the user's request to make
   the gateway "have the main features an enterprise-grade gateway would, like AWS's."
+- **2026-07-15** — Lesson 1 (API-key authentication) complete. `apiKeyRegistry.ts` +
+  `apiKeyAuthMiddleware` built and wired in `gateway/src/index.ts`, mounted before the
+  rate limiters. Verified via Postman: no key / unknown key → 401 with `WWW-Authenticate`;
+  valid key → passes through unchanged. See `YOUR_TURN_1.md`.
