@@ -12,20 +12,20 @@ export async function slidingWindowRateLimiter(
   next: NextFunction,
 ) {
   const key = `rate-limit:orders:sliding:${req.ip}`;
-  console.log("req.ip: ", req.ip);
+  
   const now = Date.now();
   const windowStart = now - WINDOW_SECONDS * 1000;
 
   const [, , count] = await redisClient
     .multi()
-    .zRemRangeByScore(key, 0, windowStart)
-    .zAdd(key, { score: now, value: `${now}-${randomUUID()}` })
-    .zCard(key)
+    .zRemRangeByScore(key, 0, windowStart) // remove old requests from the set 
+    .zAdd(key, { score: now, value: `${now}-${randomUUID()}` }) // add new request to the set
+    .zCard(key) // get the count of elements in the set === count
     .expire(key, WINDOW_SECONDS)
     .execTyped();
 
-  const members = await redisClient.zRangeWithScores(key, 0, -1);
-  console.log(`[rate-limit] ${key}:`, members);
+  // const members = await redisClient.zRangeWithScores(key, 0, -1);
+  // console.log(`[rate-limit] ${key}:`, members);
 
   if (count > MAX_REQUESTS) {
     const [oldest] = await redisClient.zRangeWithScores(key, 0, 0);

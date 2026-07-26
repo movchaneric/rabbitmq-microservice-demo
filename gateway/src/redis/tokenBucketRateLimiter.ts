@@ -27,6 +27,7 @@ export function createTokenBucketLimiter(config: TokenBucketConfig) {
       },
     )) as [number, string];
 
+    // Not allowed -> throw the user
     if (!allowed) {
       const tokensNow = Number(tokensRemaining);
       const secondsUntilOneToken = (1 - tokensNow) / refillPerSecond;
