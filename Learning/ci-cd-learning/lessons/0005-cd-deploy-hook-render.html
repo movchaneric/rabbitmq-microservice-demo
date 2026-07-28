@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CI/CD Lesson 5 — CD: Deploying to Render via a Deploy Hook</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<script src="../../assets/quiz.js" defer></script>
+</head>
+<body>
+
+<h1>CI/CD Lesson 5: CD — Deploying to Render via a Deploy Hook</h1>
+<p class="subtitle">Tied to mission: turn a green CI run into an actual, reachable, deployed <code>order-service</code></p>
+
+<h2>Where you are</h2>
+<p>
+Every push to <code>main</code> under <code>order-service/**</code> already produces a
+real, SHA-tagged image sitting in GHCR (Lessons 1-4). Nothing has ever pulled that
+image and run it anywhere reachable — it just accumulates in the registry. This lesson
+closes that gap for <strong>one service</strong>: <code>order-service</code> gets a real
+Render Web Service, and CI calls a <strong>deploy hook</strong> to tell Render "a new
+image just landed, go run it" — automatically, only after CI has actually passed on
+<code>main</code>. The other 4 services stay exactly as they are for now; scaling this
+to all 5 is its own later lesson, same shape as Lessons 3&rarr;4.
+</p>
+
+<h2>The concept: CD is a second event, not a continuation of CI</h2>
+<p>
+CI answered "is this commit good?" CD answers a completely different question: "should
+what's currently deployed be replaced with this commit?" Those are separate concerns
+with separate triggers, even though CD should never fire unless CI already said yes.
+</p>
+<p>
+A <strong>deploy hook</strong> is a unique, secret URL Render generates per service.
+Sending it an empty <code>POST</code> request tells Render "pull whatever image is
+currently tagged for this service and redeploy it" — no auth header, no payload, the
+URL itself <em>is</em> the credential. That's exactly why it's a GitHub Actions secret,
+never a plain workflow input: anyone who has that URL can trigger a deploy of your
+service, unprompted.
+</p>
+<p>
+Render doesn't build your code itself here — <code>push-image</code> (Lesson 3) already
+built and pushed the image to GHCR. Render's job is narrower: pull that specific image
+and run it as a container. That split — GitHub Actions builds, GHCR stores, Render
+runs — is why the deploy hook call only needs to happen <em>after</em>
+<code>push-image</code> has actually succeeded; calling it any earlier would tell Render
+to redeploy before there's anything new to pull.
+</p>
+<div class="callout">
+<strong>Why gate on `push` to `main`, not `pull_request`, again?</strong> Same CI-vs-CD
+boundary from Lesson 3: a PR's `push-image` job doesn't even run (recall its `if:`
+condition), so there is no image from a PR commit for a deploy hook to point at in the
+first place. Deploys only ever follow a merge to `main`.
+</div>
+<p class="citation">
+Primary source — read this before the exercise:
+<a href="https://render.com/docs/deploy-hooks">Render Docs — Deploy Hooks</a>.
+</p>
+
+<h2>Manual setup (do this in the Render/CloudAMQP dashboards, not in this repo)</h2>
+<p>
+This part isn't a code exercise — there's no blank to fill in a browser. Do these in
+order, then come back for the workflow change:
+</p>
+<ol>
+<li><strong>CloudAMQP:</strong> create a free "Little Lemur" instance. Copy its AMQP URL
+(<a href="https://www.cloudamqp.com/docs/index.html">CloudAMQP — Getting Started</a>)
+— this is what <code>order-service</code>'s code already reads as
+<code>process.env.RABBITMQ_URL</code> (see <code>services/order-service/src/rabbitmq/connection.ts</code>).
+It's the same env var name your local <code>docker-compose.yml</code> already uses, just
+pointed at a hosted broker instead of your local cluster.</li>
+<li><strong>Render Key Value:</strong> create a free Key Value instance from the Render
+dashboard. Copy its connection string — this is <code>REDIS_URL</code>
+(<code>services/order-service/src/redis/client.ts</code> throws at import time if it's
+missing, so this one's non-optional).</li>
+<li><strong>Render Web Service:</strong> create a new Web Service, choose
+<strong>"Existing Image"</strong> as the deploy type (not "build from repo" — CI already
+builds it), and point it at
+<code>ghcr.io/&lt;your-github-username&gt;/order-service:&lt;some-sha-that's-already-in-GHCR&gt;</code>
+as the initial image. Set its environment variables: <code>PORT</code> (Render sets this
+one itself, don't override it), <code>RABBITMQ_URL</code>, <code>REDIS_URL</code> from
+the two steps above.</li>
+<li>Once the service exists, go to its <strong>Settings &rarr; Deploy Hook</strong> and
+copy the URL. In this GitHub repo, go to <strong>Settings &rarr; Secrets and
+variables &rarr; Actions</strong> and add it as a new repository secret named
+<code>RENDER_DEPLOY_HOOK_ORDER_SERVICE</code>.</li>
+</ol>
+<div class="callout">
+If GHCR's package is currently private, Render won't be able to pull it without
+credentials of its own — check the package's visibility under your GitHub profile's
+<strong>Packages</strong> tab first (public is fine for this learning repo; a real
+company would instead give Render a scoped pull token).
+</div>
+
+<h2>Check your understanding</h2>
+<p>Three short-answer questions, one word each.</p>
+
+<div class="quiz-q" data-answer="secret">
+  <p class="prompt">Q1. The deploy hook URL is the credential itself — anyone with it can trigger a deploy. What GitHub Actions mechanism is it stored as, so it's usable in a workflow but never visible in logs or committed to the repo?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "secret"</strong> — a repository (or environment) secret,
+    referenced as <code>secrets.RENDER_DEPLOY_HOOK_ORDER_SERVICE</code>. Same mechanism
+    as <code>GITHUB_TOKEN</code> in Lesson 3, but one you create yourself instead of one
+    GitHub issues automatically.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="needs">
+  <p class="prompt">Q2. What job-level YAML key makes the deploy job wait for `push-image` to actually finish successfully first, instead of starting immediately when the workflow triggers?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "needs"</strong> — <code>needs: push-image</code>. Without it, the
+    deploy job would run in parallel with (or even before) the image build finishes,
+    telling Render to redeploy an image that doesn't exist yet.
+  </div>
+</div>
+
+<div class="quiz-q" data-answer="pull">
+  <p class="prompt">Q3. When the deploy hook fires, what verb describes the action Render itself takes against GHCR to get the new image — the same verb that's the opposite of what `push-image` did in Lesson 3?</p>
+  <input type="text" placeholder="one word">
+  <button onclick="checkQuiz(this)">Check</button>
+  <div class="reveal">
+    <strong>Expected: "pull"</strong> — Render pulls the image; CI pushed it. Two
+    separate systems, two separate directions, connected only by the registry sitting
+    between them.
+  </div>
+</div>
+
+<h2>The exercise</h2>
+<p>
+Two small changes. Blanks (<code>___</code>) are yours to fill.
+</p>
+
+<div class="exercise">
+<h3><span class="file">.github/workflows/service-ci.yml</span> — add a new job</h3>
+<pre><code>  deploy:
+    needs: ___                                          # from Q2 — which job must succeed first?
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.service == '___'   # scoped to one service only, for now
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -X ___ "${{ secrets.deploy_hook }}"    # what HTTP verb does hitting a deploy hook use? (see Lesson 3, Q1's neighbor concept)
+</code></pre>
+<p class="ask-agent">Note the new job reads <code>secrets.deploy_hook</code> — a name
+that doesn't exist yet anywhere. That's because reusable workflows don't automatically
+receive the caller's secrets; they have to be explicitly declared and passed, the same
+way <code>inputs.service</code> is explicitly declared and passed. Ask me about the
+<code>on: workflow_call: secrets:</code> block if you're not sure how to declare
+one.</p>
+</div>
+
+<div class="exercise">
+<h3><span class="file">.github/workflows/ci.yml</span> — pass the secret, order-service only</h3>
+<pre><code>  order-service:
+    needs: changes
+    if: needs.changes.outputs.order-service == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: order-service
+      path: services/order-service
+    secrets:
+      deploy_hook: ${{ secrets.___ }}                    # the repository secret name you created in the manual setup
+</code></pre>
+<p class="ask-agent">Notice the other 4 services' caller jobs don't get a
+<code>secrets:</code> block at all — that's deliberate, not an oversight. Their
+<code>deploy</code> job in <code>service-ci.yml</code> will still evaluate its
+<code>if:</code>, see <code>inputs.service != 'order-service'</code>, and simply not
+run. Nothing breaks for the other 4; they just don't have anywhere to deploy to yet.</p>
+</div>
+
+<h2>Verify it works</h2>
+<ol>
+<li>Push a real change under <code>order-service/**</code> to <code>main</code>.</li>
+<li>In the Actions tab, confirm you now see three nested jobs run in order:
+<code>test</code> &rarr; <code>push-image</code> &rarr; <code>deploy</code>.</li>
+<li>In the Render dashboard, open your Web Service's <strong>Events</strong> tab —
+confirm a new deploy started right around when the <code>deploy</code> job ran, and
+watch it go live.</li>
+<li>Hit the deployed service's public URL (Render gives you one, e.g.
+<code>https://order-service-xxxx.onrender.com</code>) and confirm it actually responds
+— this proves <code>RABBITMQ_URL</code> and <code>REDIS_URL</code> were wired
+correctly, not just that a container started.</li>
+<li>Push a change under a <em>different</em> service (e.g. <code>gateway/</code>) and
+confirm no deploy job runs at all for it — <code>order-service</code>'s job doesn't
+even appear in that run, same path-filter behavior as Lesson 4.</li>
+</ol>
+
+<div class="win">
+A push to <code>main</code> now travels all the way from your laptop to a real,
+publicly reachable server, with no manual step in between — and only after a real test
+suite has actually passed. That's the whole point of CI/CD: the pipeline is the only
+path to production, not a convenience next to a manual one.
+</div>
+
+<h2>Next up</h2>
+<p>
+Per the mission's phase plan: scale this same deploy pattern to the other 4 services
+(each gets its own Render Web Service, its own deploy hook secret,
+<code>ORDER_SERVICE_URL</code> / <code>INVENTORY_SERVICE_URL</code> / etc. on
+<code>gateway</code> pointed at real Render URLs instead of local ones) — then Lesson 6
+tightens how those secrets and per-environment config are organized as the pipeline
+grows past one deployed service. Ask me anything about this lesson first.
+</p>
+
+<div class="nav">
+Reference: <a href="../reference/github-actions-anatomy.html">GitHub Actions Anatomy cheat sheet</a> ·
+<a href="../reference/dockerfile-anatomy.html">Dockerfile Anatomy cheat sheet</a> ·
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a>
+</div>
+
+</body>
+</html>

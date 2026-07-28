@@ -19,6 +19,7 @@ export async function fixedWindowRateLimiter(
     .execTyped();
 
   if (count > MAX_REQUEST) {
+    // Get the current TTL of the key to pass to the respose
     const ttl = await redisClient.ttl(key);
     res.set("Retry-After", String(ttl));
     return res.status(429).json({
