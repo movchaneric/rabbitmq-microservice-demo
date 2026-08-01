@@ -8,17 +8,21 @@ import { createTokenBucketLimiter } from "./redis/tokenBucketRateLimiter";
 import { apiKeyAuthMiddleware } from "./auth/apiKeyAuth";
 import { seedApiKeys } from "./auth/apiKeyRegistry";
 import { usagePlanQuota } from "./auth/usagePlanQuota";
+import { jwtAuthMiddleware } from "./auth/jwtAuth";
+import { requireRole } from "./auth/requireRole";
 // import { tokenBucketRateLimiter } from "./redis/tokenBucketRateLimiter";
 
 const app = express();
 
 app.use(apiKeyAuthMiddleware);
+app.use(jwtAuthMiddleware);
 app.use(usagePlanQuota);
 
 // app.use("/api/v1/orders", fixedWindowRateLimiter);
 // app.use("/api/v1/orders", slidingWindowRateLimiter);
 app.use(
   "/api/v1/orders",
+  requireRole("customer", "admin"),
   createTokenBucketLimiter({
     scope: "order",
     capacity: 5,
@@ -34,23 +38,27 @@ app.use(
   }),
 );
 
+app.post("/api/v1/inventory/toggle-fail", requireRole("admin"));
+
 app.use(
   "/api/v1/inventory",
+  requireRole("customer", "admin"),
   createTokenBucketLimiter({
     scope: "inventory",
     capacity: 20,
     refillPerSecond: 2,
   }),
-);
-app.use(
   createProxyMiddleware({
     target: process.env.INVENTORY_SERVICE_URL,
     changeOrigin: true,
-    pathFilter: "/api/v1/inventory",
-    pathRewrite: { "^/api/v1": "" },
+    pathRewrite: { "^/": "/inventory/" },
   }),
 );
 
+app.use(
+  "/api/v1/notifications",
+  requireRole("customer", "admin"),
+);
 app.use(
   createProxyMiddleware({
     target: process.env.NOTIFICATION_SERVICE_URL,
@@ -61,6 +69,8 @@ app.use(
 );
 
 app.use(
+  "/api/v1/dead-letters",
+  requireRole("admin"),
   createProxyMiddleware({
     target: process.env.DEAD_LETTER_SERVICE_URL,
     changeOrigin: true,

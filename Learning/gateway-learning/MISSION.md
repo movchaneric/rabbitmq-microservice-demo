@@ -25,14 +25,22 @@ implements it, not just wire up an npm package. The demo's five microservices
 
 ## Roadmap (decided with the user)
 1. **Auth — API keys → usage plans** (Phase A). Identify the caller, then move throttling
-   from per-IP to per-identity + add quotas. *(Done — Lessons 1–2, 2026-07-15. Next: Lesson
-   3, JWT bearer / Phase B.)*
-2. **Auth — JWT bearer** (Phase B). Layer user authentication on top of app identification.
-3. **Observability.** Structured access logs, correlation/request IDs propagated to
+   from per-IP to per-identity + add quotas. *(Done — Lessons 1–2, 2026-07-15.)*
+2. **Auth — JWT bearer + RBAC** (Phase B). Layer real *user* authentication on top of *app*
+   identification, from a dedicated `auth-service` (register/login, issues JWTs) the gateway
+   trusts — then authorize by role (`customer` vs `admin`) so 403 becomes a real, exercised
+   code path, not just a glossary entry. *(Next — Lesson 3.)*
+3. **Auth — OAuth2 grant types** (Phase C). Replace the shared-secret HS256 trust from
+   Phase B with the real OAuth2/OIDC model: authorization-code (user login via a browser),
+   client-credentials (service-to-service, no user), refresh tokens, and where AWS Cognito /
+   a Lambda authorizer fit. This is the "industrial standard" piece — Phase B simulates just
+   enough of an issuer to make RBAC concrete; Phase C is where the token *issuance* protocol
+   itself gets taught properly.
+4. **Observability.** Structured access logs, correlation/request IDs propagated to
    backends, per-route latency + status.
-4. **Request validation.** Reject malformed requests at the edge.
-5. **Resilience.** Timeouts, retries, circuit breaking, health checks.
-6. Later / as pulled in: CORS, response caching, security headers.
+5. **Request validation.** Reject malformed requests at the edge.
+6. **Resilience.** Timeouts, retries, circuit breaking, health checks.
+7. Later / as pulled in: CORS, response caching, security headers.
 
 > Order chosen 2026-07-13. "Both, in sequence" for auth: API keys first (extends the
 > existing rate limiter), then JWT. See the learning record for the reasoning.
@@ -63,3 +71,9 @@ implements it, not just wire up an npm package. The demo's five microservices
   middleware adds a per-caller daily quota, independent of the throttle. Verified via
   Postman: separate throttle buckets per caller, separate quota counters per caller. See
   `YOUR_TURN_2.md`.
+- **2026-07-29** — Phase B scoped and split into two decisions (see learning record
+  0002): (1) JWTs come from a **new `services/auth-service`**, not from the gateway itself —
+  the gateway only verifies, mirroring how a real IdP (Cognito/Auth0/Keycloak) sits outside
+  the gateway. (2) JWT verification (authentication) and RBAC (authorization) are taught
+  **together in Lesson 3**, since 401-vs-403 only becomes real once both exist to contrast.
+  Real OAuth2 grant types pulled out into their own **Phase C**, added to the roadmap above.

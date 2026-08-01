@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "concurrently --prefix-colors \"cyan,green,yellow,magenta,blue\" -n \"gateway,order,inventory,notification,dlx\" \"npm --prefix gateway start\" \"npm --prefix services/order-service start\" \"npm --prefix services/inventory-service start\" \"npm --prefix services/notification-service start\" \"npm --prefix services/dead-letter-service start\""
+    "start": "concurrently --prefix-colors \"cyan,green,yellow,magenta,blue,white\" -n \"gateway,order,inventory,notification,dlx,auth\" \"npm --prefix gateway start\" \"npm --prefix services/order-service start\" \"npm --prefix services/inventory-service start\" \"npm --prefix services/notification-service start\" \"npm --prefix services/dead-letter-service start\" \"npm --prefix services/auth-service start\""
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

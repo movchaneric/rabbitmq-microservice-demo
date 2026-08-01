@@ -47,3 +47,36 @@ Once a term is here, lessons use it consistently.
 - **Per-IP vs per-identity rate limiting** — keying the throttle on `req.ip` (what the
   gateway does today) vs on the authenticated caller (API key / user). Enterprise gateways
   meter per-identity so one customer's traffic can't spend another's budget.
+
+- **JWT (JSON Web Token)** — a signed, self-contained token: `header.payload.signature`,
+  base64url-encoded. The payload holds **claims** (facts about the token/subject). Because
+  it's signed, not encrypted, anyone can *read* a JWT — the signature only proves it wasn't
+  *tampered with*. Never put secrets in the payload.
+
+- **Claim** — one fact inside a JWT's payload. *Registered* claims are standardized
+  (`sub` = subject/user ID, `iss` = issuer, `aud` = audience, `exp` = expiry, `iat` = issued
+  at). *Custom* claims are app-defined — this track uses one: `role`.
+
+- **Bearer token** — a token that grants access to whoever *holds* it ("bearer"), no further
+  proof required — sent as `Authorization: Bearer <token>`. Unlike an API key (identifies an
+  *app*), a JWT bearer token identifies a **user**, once verified.
+
+- **Access token** — a short-lived bearer token (this track: a JWT) used to call APIs.
+  Contrast with a **refresh token** (longer-lived, used only to obtain a new access token) —
+  refresh tokens are out of scope until Phase C.
+
+- **Alg confusion / `none` algorithm attack** — a JWT-specific forgery: if a verifier trusts
+  the `alg` field *inside the token* instead of pinning the algorithm it expects, an attacker
+  can submit a token with `alg: none` (no signature needed) or swap a public-key algorithm
+  for HMAC using the public key as the HMAC secret. Defense: always pass `algorithms: [...]`
+  explicitly to `jwt.verify` — never let the token pick its own verification method.
+
+- **RBAC (Role-Based Access Control)** — authorization by role (`customer`, `admin`) rather
+  than by individual permission. Simple and common, though OWASP notes it can suffer "role
+  explosion" at scale (see ABAC/ReBAC) — fine for this track's two-role scope.
+
+- **Authorizer, revisited** — Lesson 1 defined this as "decides who's calling." With JWT +
+  RBAC, an authorizer really does two jobs in sequence: **authenticate** (verify the
+  signature, decide *who*) then **authorize** (check the role/claims, decide *can they*).
+  One middleware can do both, but they're conceptually two separate questions — which is
+  exactly why 401 and 403 are two different status codes, not one.

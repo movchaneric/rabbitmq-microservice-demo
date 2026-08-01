@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 3 — JWT Authentication &amp; Roles</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+
+<h1>Lesson 3 — Now prove it's really you</h1>
+<p class="subtitle">JWT bearer authentication, plus role-based authorization: customer vs admin.</p>
+
+<p>
+Lesson 1 was explicit about what an API key <em>isn't</em>: proof of who's calling, only
+proof of which app is calling. Today you build the real thing. A new service,
+<span class="file">services/auth-service</span>, becomes your identity provider — it
+registers users, checks passwords, and issues signed <strong>JWTs</strong>. The gateway's
+job changes too: it stops trusting bare identity and starts <strong>verifying</strong> a
+signature, then asking a second question it's never been able to ask before —
+<em>is this specific user allowed to do this?</em>
+</p>
+
+<div class="win">
+By the end: <code>POST /api/v1/inventory/toggle-fail</code> and
+<code>GET /api/v1/dead-letters</code> require a valid JWT <em>and</em> the <code>admin</code>
+role. A customer's token gets a <code>403</code>. No token, an expired token, or a token
+with a tampered signature gets a <code>401</code>. Ordinary routes (placing an order,
+reading inventory) work for any authenticated user, customer or admin.
+</div>
+
+<h2>Three questions, three mechanisms — now all three exist</h2>
+
+<table>
+<tr><th>Concern</th><th>Question it answers</th><th>Tool</th></tr>
+<tr><td>Identification / metering</td><td>Which <em>app</em> is calling?</td><td>API key (Lesson 1)</td></tr>
+<tr><td>Authentication</td><td>Is this really that <em>user</em>?</td><td><strong>JWT — today</strong></td></tr>
+<tr><td>Authorization</td><td>May this user do <em>this</em>?</td><td><strong>Role check — today</strong></td></tr>
+</table>
+
+<p>
+Notice all three can be true at once on one request: a mobile app (API key) calling on
+behalf of a logged-in customer (JWT) who is trying to place an order they're allowed to
+place (role check passes). A real gateway runs all three checks, in that order, on every
+request that needs them.
+</p>
+
+<h2>Where the token comes from</h2>
+
+<p>
+The gateway will <strong>never mint a JWT</strong> — only verify one. That job belongs to
+<span class="file">services/auth-service</span>, a small new service with two routes:
+<code>POST /register</code> (hash a password, store a user with a <code>role</code>) and
+<code>POST /login</code> (check the password, sign a JWT). This is the same shape as a real
+identity provider — Cognito, Auth0, Keycloak — sitting outside the gateway. The gateway's
+authorizer only ever answers "is this signature valid, and is it still fresh?" — it never
+touches a password.
+</p>
+
+<div class="callout">
+<strong>The simplification we're making, on purpose.</strong> Today, <code>auth-service</code>
+and the gateway share one secret (<code>JWT_SECRET</code>, HS256) — both sides know it,
+because you control both services. A real external IdP doesn't share a secret with you at
+all: it signs with a <em>private</em> key and publishes only the <em>public</em> key (via a
+JWKS endpoint), so anyone can verify but only the IdP can sign. That's asymmetric trust, and
+it's exactly what <strong>Phase C</strong> (real OAuth2) replaces this with. For now, the
+shared secret keeps today's lesson to one new idea — verification and roles — instead of two.
+</div>
+
+<h2>Anatomy of the token you're about to mint</h2>
+
+<p>
+A JWT is three base64url segments joined by dots: <code>header.payload.signature</code>.
+The payload is a bag of <strong>claims</strong> — plain JSON, readable by anyone, so never
+put a secret in it. The signature is what makes it trustworthy: it proves the payload
+hasn't been altered since the issuer signed it.
+</p>
+
+<pre><code>// what auth-service will put in the payload
+{
+  "sub": "alice@example.com",   // registered claim: subject — who this token is about
+  "role": "customer",           // custom claim — yours, not part of the JWT spec
+  "iss": "gateway-demo-auth",   // registered claim: issuer — who signed this
+  "aud": "gateway-demo-api",    // registered claim: audience — who this token is for
+  "iat": 1753776000,            // issued-at
+  "exp": 1753776900             // expiry — 15 minutes later
+}</code></pre>
+
+<p class="citation">
+Claim names and meanings: <a href="https://www.rfc-editor.org/rfc/rfc7519">RFC 7519</a> §4.1.
+Plain-language walkthrough: <a href="https://jwt.io/introduction">jwt.io — Introduction to JSON Web Tokens</a>.
+</p>
+
+<div class="callout">
+<strong>The mistake that breaks JWT security.</strong> A verifier must decide
+<em>in advance</em> which algorithm and which secret/key to check a signature against —
+never read <code>alg</code> out of the token and use whatever it says. If you did, an
+attacker could hand you a token with <code>alg: none</code> (no signature to check at all)
+and you'd accept it. This is real enough to have a name — the
+<strong>alg confusion attack</strong>. The fix is one line: pass
+<code>algorithms: [...]</code> explicitly to <code>jwt.verify</code>.
+See the <a href="https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_Cheat_Sheet.html">OWASP JWT Cheat Sheet</a>,
+which also covers checking <code>exp</code>/<code>iat</code>/<code>nbf</code> and
+<code>iss</code>/<code>aud</code> — all of which <code>jwt.verify</code> does for you, but
+only for the options you pass in.
+</div>
+
+<h2>Check your grip before you build</h2>
+
+<div class="quiz-q" data-answer="401 unauthenticated, 403 authenticated but not permitted">
+<p class="prompt">A request has a perfectly valid, unexpired JWT for a customer — but hits the admin-only toggle-fail route. 401 or 403, and why?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+<strong>403.</strong> The gateway knows exactly who this is — the signature checked out.
+The problem isn't identity, it's permission. 401 is reserved for "I can't tell who you
+are" (missing, malformed, expired, or forged token).
+</div>
+</div>
+
+<div class="quiz-q" data-answer="attacker forges a token by setting alg to none, skipping the signature entirely">
+<p class="prompt">In one sentence: what does a verifier that trusts the token's own <code>alg</code> field expose it to?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+An attacker can hand it a token declaring <code>alg: none</code> (or swap the expected
+algorithm for one that lets the public key double as an HMAC secret), and the verifier
+checks nothing — it accepts a token nobody signed.
+</div>
+</div>
+
+<div class="quiz-q" data-answer="role claim is trustworthy only because the signature was verified first">
+<p class="prompt">Why is it safe to trust the <code>role</code> claim inside a JWT for an authorization decision, when it'd be unsafe to trust a <code>role</code> field the client just put in the request body?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+Because by the time you read <code>role</code>, you've already verified the signature —
+the claim can only have the value the issuer put there, since any change would break the
+signature. A <code>role</code> in a raw request body has no such guarantee; the client
+could write anything.
+</div>
+</div>
+
+<h2 id="exercise">Your turn — build the issuer and the authorizer</h2>
+
+<p>
+Same rule as Lessons 1–2: you write every file, I work the blanks with you, then you get a
+<code>YOUR_TURN_3.md</code> once it's verified working. This one spans two codebases — a
+new service, then two gateway middlewares.
+</p>
+
+<div class="exercise">
+<h3>Step 1 — scaffold <span class="file">services/auth-service</span></h3>
+<p>
+Mirror the shape every other service under <span class="file">services/</span> already
+uses (look at <span class="file">order-service</span> for the pattern):
+<code>package.json</code>, <code>tsconfig.json</code>, <code>.env.example</code>,
+<code>src/index.ts</code>. New dependencies this service needs that no other service has
+yet: <code>jsonwebtoken</code> (sign/verify) and <code>bcryptjs</code> (password hashing —
+the JS-only build, no native compile step, kept for a teaching repo). Add
+<code>@types/jsonwebtoken</code> as a dev dependency; <code>bcryptjs</code> ships its own
+types.
+</p>
+<pre><code>// services/auth-service/.env.example
+PORT=3005
+JWT_SECRET=???           // a long random string — generate one, don't type "secret"
+JWT_ISSUER=gateway-demo-auth
+JWT_AUDIENCE=gateway-demo-api</code></pre>
+<p class="citation">
+This same <code>JWT_SECRET</code>, <code>JWT_ISSUER</code>, and <code>JWT_AUDIENCE</code>
+will need to exist in <span class="file">gateway/.env</span> too — verification only works
+if both sides agree on all three.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 2 — a user store</h3>
+<p>
+New file <span class="file">services/auth-service/src/users.ts</span>. In-memory is fine —
+same reasoning as Lesson 1's API-key registry: this is a teaching repo, and persistence
+isn't this lesson's idea.
+</p>
+<pre><code>// users.ts (skeleton — you fill the blanks)
+export interface User {
+  email: string;
+  passwordHash: string;
+  role: "customer" | "admin";
+}
+
+const users = new Map&lt;string, User&gt;();
+
+export async function register(
+  email: string,
+  password: string,
+  role: "customer" | "admin",
+): Promise&lt;User&gt; {
+  const passwordHash = /* ??? bcryptjs — hash the password, don't store it plain */;
+  const user: User = { email, passwordHash, role };
+  users.set(email, user);
+  return user;
+}
+
+export function findByEmail(email: string): User | undefined {
+  return /* ??? */;
+}</code></pre>
+</div>
+
+<div class="exercise">
+<h3>Step 3 — <code>/register</code> and <code>/login</code></h3>
+<p>
+In <span class="file">services/auth-service/src/index.ts</span>. Login is where the JWT
+gets born.
+</p>
+<pre><code>// index.ts (skeleton — you fill the blanks)
+import "dotenv/config";
+import express, { Request, Response } from "express";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import { register, findByEmail } from "./users";
+
+const app = express();
+app.use(express.json());
+
+app.post("/register", async (req: Request, res: Response) => {
+  const { email, password, role } = req.body;
+  const user = await register(email, password, role ?? "customer");
+  res.status(201).json({ email: user.email, role: user.role });
+});
+
+app.post("/login", async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+  const user = findByEmail(email);
+
+  if (!user /* ??? or password doesn't match — one bcrypt call */) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
+  const token = jwt.sign(
+    { role: /* ??? */ },
+    process.env.JWT_SECRET!,
+    {
+      subject: /* ??? which field identifies this user */,
+      issuer: /* ??? */,
+      audience: /* ??? */,
+      expiresIn: /* ??? short — this is an access token, not a refresh token */,
+    },
+  );
+
+  res.json({ token });
+});
+
+app.listen(process.env.PORT, () =&gt;
+  console.log(`[auth-service] Listening on port ${process.env.PORT}`),
+);</code></pre>
+<p class="citation">
+Deliberate omission: <strong>timing-safe comparison for "user not found" vs "wrong
+password."</strong> Returning the same 401 either way (as the skeleton does) is correct —
+a different message for each would let an attacker enumerate which emails are registered.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 4 — the gateway verifies</h3>
+<p>
+New file <span class="file">gateway/src/auth/jwtAuth.ts</span>. This is where the algorithm
+pinning from the quiz above becomes real code, not just a rule you recited.
+</p>
+<pre><code>// jwtAuth.ts (skeleton — you fill the blanks)
+import { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
+
+export function jwtAuthMiddleware(req: Request, res: Response, next: NextFunction) {
+  const header = req.headers.authorization;
+
+  if (!header?.startsWith("Bearer ")) {
+    res.set("WWW-Authenticate", /* ??? name this scheme, not "ApiKey" this time */);
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const token = /* ??? strip the "Bearer " prefix */;
+
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET!, {
+      algorithms: /* ??? pin it — this is the line the quiz was about */,
+      issuer: /* ??? */,
+      audience: /* ??? */,
+    }) as { sub: string; role: string };
+
+    req.user = { sub: payload.sub, role: payload.role };
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+}</code></pre>
+<p class="citation">
+Add <code>user?: { sub: string; role: string }</code> to the same
+<span class="file">gateway/src/types/express.d.ts</span> where <code>caller</code> already
+lives — same pattern, one more field on <code>Request</code>.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 5 — the role check</h3>
+<p>
+New file <span class="file">gateway/src/auth/requireRole.ts</span>. Unlike
+<code>jwtAuthMiddleware</code>, this one needs to be <em>configurable</em> per route — not
+every route needs the same role.
+</p>
+<pre><code>// requireRole.ts (skeleton — you fill the blanks)
+import { Request, Response, NextFunction } from "express";
+
+export function requireRole(...allowed: string[]) {
+  return (req: Request, res: Response, next: NextFunction) =&gt; {
+    if (/* ??? req.user doesn't exist — what does that mean, and which status? */) {
+      return res.status(/* ??? */).json({ error: "Unauthorized" });
+    }
+    if (/* ??? req.user.role isn't in allowed — which status now? */) {
+      return res.status(/* ??? */).json({ error: "Forbidden" });
+    }
+    next();
+  };
+}</code></pre>
+<p class="citation">
+Notice the shape: <code>requireRole</code> returns a middleware, it isn't one — same
+factory pattern as <code>createTokenBucketLimiter</code>. That's what lets you write
+<code>requireRole("admin")</code> on one route and nothing (or
+<code>requireRole("customer", "admin")</code>) on another.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 6 — wire it in</h3>
+<p>
+In <span class="file">gateway/src/index.ts</span>. Two design questions to reason through
+before you write the line:
+</p>
+<p>
+<strong>Placement of <code>jwtAuthMiddleware</code>.</strong> It reads
+<code>Authorization</code>; <code>apiKeyAuthMiddleware</code> reads <code>x-api-key</code>.
+They're independent headers checking independent things — which means order between them
+doesn't change correctness the way, say, auth-before-rate-limiting did in Lesson 1. Where
+would you put it relative to the existing <code>app.use(apiKeyAuthMiddleware)</code> and
+<code>app.use(usagePlanQuota)</code> lines, and does it matter?
+</p>
+<p>
+<strong>Which routes get <code>requireRole</code>.</strong> Every route should require
+<em>some</em> logged-in user (mount <code>jwtAuthMiddleware</code> globally, same way
+<code>apiKeyAuthMiddleware</code> is). Only two routes are admin-only:
+<code>POST /api/v1/inventory/toggle-fail</code> and <code>GET /api/v1/dead-letters</code> —
+both operational, neither customer-facing. Everything else (placing orders, reading
+inventory, reading notifications) should accept <code>requireRole("customer", "admin")</code>
+— any logged-in user, either role.
+</p>
+</div>
+
+<div class="win">
+<strong>Verify it yourself:</strong> register one <code>customer</code> and one
+<code>admin</code> via <code>POST /register</code> on auth-service directly (it's not
+behind the gateway — it <em>is</em> part of the trust boundary). Log in as each, keep both
+tokens. As the customer: <code>POST /api/v1/orders</code> → succeeds;
+<code>POST /api/v1/inventory/toggle-fail</code> → <code>403</code>. As the admin: same
+toggle-fail route → <code>200</code>. No <code>Authorization</code> header at all on any
+protected route → <code>401</code>. Then tamper with one character of a valid token and
+resend it — still <code>401</code>, because the signature no longer matches.
+</div>
+
+<h2>Where this points next</h2>
+<p>
+You now have the full triad — identify, authenticate, authorize — and a real, exercised
+401-vs-403 distinction. What's still simulated: the shared secret between
+<code>auth-service</code> and the gateway, and the fact that <code>auth-service</code> hands
+back a raw token instead of running a real OAuth2 <strong>grant type</strong>. <strong>Phase
+C</strong> replaces the shared secret with asymmetric signing and teaches the actual
+protocols production systems use — <em>authorization-code</em> (a human logging in through a
+browser) and <em>client-credentials</em> (one service calling another, no human involved) —
+plus refresh tokens, which today's short-lived access token deliberately didn't need yet.
+</p>
+
+<h2>Read this (primary source)</h2>
+<p>
+<a href="https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_Cheat_Sheet.html"><strong>OWASP JSON Web Token Cheat Sheet</strong></a>
+— read it end to end once, not just the excerpt above; it's short and it's the industry
+answer to "am I using tokens correctly." Pair it with the
+<a href="https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html">OWASP Authorization Cheat Sheet</a>
+for the RBAC half. Full citation list in <a href="../RESOURCES.md">RESOURCES.md</a>.
+</p>
+
+<p class="ask-agent">
+Stuck on a blank, or want to go deeper (why <code>subject</code> in <code>jwt.sign</code>'s
+options becomes <code>sub</code> in the payload, symmetric vs asymmetric signing, what a
+refresh token would add if you wanted one now instead of in Phase C)? Ask me.
+</p>
+
+<div class="nav">
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a> ·
+<a href="../RESOURCES.md">Resources</a> ·
+Lesson 3 of the enterprise-gateway track · Next → OAuth2 grant types (Phase C)
+</div>
+
+<script src="../../../assets/quiz.js"></script>
+</body>
+</html>
