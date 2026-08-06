@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 2 — Subagents and the Task Tool</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+
+<h1>Lesson 2 — Hand the work to someone else</h1>
+<p class="subtitle">Claude Code subagents: bounded delegation with an independent context window.</p>
+
+<p>
+Lesson 1 gave a worker its own <em>room</em> (a worktree). This lesson gives it its own
+<em>head</em> — a <strong>subagent</strong>: a separate Claude Code invocation with its own
+system prompt, its own tool access, and critically, its own context window. That last part
+is the whole point. Every tool call a subagent makes — every file it reads, every command
+it runs — happens in <em>its</em> context, not yours. Only the final report comes back. This
+is the mechanic that makes "prompt → work → prompt → work" stop being the only shape a
+session can take: instead of you personally reading 400 lines of git log to summarize them,
+something else does the reading and hands you the summary.
+</p>
+
+<div class="win">
+By the end you'll have written a real subagent definition, watched Claude Code delegate to
+it, and proven — not just read about — that its raw tool output never touched your main
+conversation's context. That proof is the thing Lesson 3 builds on: a worker agent inside a
+worktree is this same isolation, applied to actual code changes instead of a summary task.
+</div>
+
+<h2>The one idea that trips everyone up</h2>
+
+<p>
+A subagent is <strong>not</strong> a different, smarter model, and it isn't "the same
+conversation, politely asking a favor." It's a fresh session: a markdown file (YAML
+frontmatter + a system-prompt body) that Claude Code can spin up on demand, hand a
+self-contained task to, and read a report back from. It doesn't see your conversation
+history unless you put it in the prompt you hand it. That's a feature, not a limitation —
+statelessness is exactly what keeps its context clean for the one bounded thing it's doing.
+</p>
+
+<table>
+<tr><th>Concern</th><th>Main conversation</th><th>Subagent</th></tr>
+<tr><td>Context window</td><td>Yours — everything accumulates here</td><td>Its own — discarded when it finishes, except the report</td></tr>
+<tr><td>Sees prior chat history?</td><td>Yes, all of it</td><td>No — only what's in the prompt it's given</td></tr>
+<tr><td>Tool access</td><td>Whatever the session allows</td><td>Can be scoped narrower (e.g. read-only)</td></tr>
+<tr><td>Good for</td><td>The task you're actively driving</td><td>Bounded side-work: review, search, log-summarizing, a worker's implementation slice</td></tr>
+</table>
+
+<p class="citation">
+— Claude Code docs: subagents are used "when a side task would flood your main
+conversation with search results, logs, or file contents you won't reference again." See
+<a href="https://code.claude.com/docs/en/sub-agents">Create custom subagents</a>.
+</p>
+
+<div class="callout">
+<strong>Two ways a subagent gets used.</strong> (1) <em>Automatic</em> — Claude reads its
+<code>description</code> field and decides, based on your request, that this subagent
+fits, then delegates on its own. (2) <em>Explicit</em> — you (or a planning agent) name it
+directly: "use the <code>repo-summarizer</code> agent for this." This track will use both:
+automatic for convenience, explicit once <code>orchestrate-prd</code> is doing deliberate
+wave planning and needs a specific worker for a specific slice.
+</div>
+
+<h2>Check your grip before you build</h2>
+
+<div class="quiz-q" data-answer="its own separate context window">
+<p class="prompt">What's the single thing a subagent has that makes delegation worth it?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+Its own context window. Whatever it reads or runs stays in its context; only the final
+report crosses back into yours — so your own context doesn't fill up with detail you'll
+never need again.
+</div>
+</div>
+
+<div class="quiz-q" data-answer="two, frontmatter config and markdown system prompt">
+<p class="prompt">A subagent definition file has two parts. What are they?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+YAML <strong>frontmatter</strong> (name, description, allowed tools, optionally which
+model) and a markdown <strong>body</strong> that becomes the subagent's system prompt.
+</div>
+</div>
+
+<div class="quiz-q" data-answer="no, only what the prompt you give it contains">
+<p class="prompt">Can a subagent see the conversation history that led up to it being called?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+No — it starts fresh. It only knows what's in the task description/prompt handed to it.
+Anything it needs from prior context has to be spelled out explicitly when it's invoked.
+</div>
+</div>
+
+<h2 id="exercise">Your turn — delegate something real</h2>
+
+<p>
+Do this inside <code>/Users/ericmovchan/agent-pipeline-practice</code> — open a Claude Code
+session there (a fresh one, not this rabbitmq-microservice-demo session). You write the
+subagent file; I'm not touching it for you.
+</p>
+
+<div class="exercise">
+<h3>Step 1 — a bounded, read-only subagent</h3>
+<p>
+Create <span class="file">.claude/agents/repo-summarizer.md</span>. Give it frontmatter with
+a <code>name</code>, a <code>description</code> specific enough that Claude Code will
+recognize when to delegate to it (vague descriptions don't trigger reliably — be concrete
+about what kind of request it handles), and a narrow <code>tools</code> list — this agent
+only needs to read, not write. The body is its system prompt: tell it what to look at
+(recent commits, current worktrees, working tree status) and what shape to report back in
+(short — a few bullet points, not a transcript).
+</p>
+<pre><code>---
+name: repo-summarizer
+description: >
+  Use to summarize the current state of a git repo -- recent commits,
+  active worktrees, and working tree status -- as a short report.
+tools: Bash, Read
+---
+
+<!-- your system prompt: what should it run, what should it NOT
+     include in its report, how terse should the summary be? -->
+</code></pre>
+<p class="citation">
+Keep the <code>tools</code> list to what the job actually needs. A read-only subagent that
+can't run <code>git commit</code> is a small, cheap safety property — the same instinct
+behind Lesson 5's "reviewer with no stake in the implementation."
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 2 — trigger it, and watch what happens</h3>
+<p>
+Ask your main session something that matches the subagent's <code>description</code> —
+phrase it the way a real request would come in, not by naming the agent. Confirm Claude
+Code actually delegates (it'll usually say so, or you'll see the Agent tool invoked) rather
+than answering directly itself.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 3 — prove the isolation, don't just trust it</h3>
+<p>
+Immediately after the subagent reports back, ask your main session a follow-up that can
+only be answered from the <em>raw</em> git log output (something specific the summary
+almost certainly left out — an exact commit hash, or the full message of a commit that
+didn't make the summary). If the isolation is real, the main session won't know it — it
+only received the condensed report, not the subagent's tool output.
+</p>
+</div>
+
+<div class="win">
+<strong>Verify it yourself:</strong> Step 3 either fails informatively (the main session
+says it doesn't have that detail, or has to re-run the command itself to find out) or it
+answers instantly because the detail happened to be in the summary. Either outcome teaches
+you something concrete about what crosses the boundary and what doesn't — that's the real
+lesson, more than the delegation itself.
+</div>
+
+<h2>Where this points next</h2>
+<p>
+You've now separately practiced <em>where</em> an agent works (Lesson 1's worktree) and
+<em>who</em> does the work with an isolated head (this lesson's subagent). Lesson 3 merges
+them: a subagent invoked with <code>isolation: "worktree"</code>, so it gets a fresh
+worktree pre-staged for it automatically before it writes a single line — the actual
+mechanic behind "worker agents in isolated git worktrees" from the mission.
+</p>
+
+<h2>Read this (primary source)</h2>
+<p>
+Read <a href="https://code.claude.com/docs/en/sub-agents"><strong>Create custom
+subagents</strong></a> in full — it's short, and it's the exact feature you just used. Pay
+attention to the section on how <code>description</code> drives automatic delegation; a
+vague description is the single most common reason a subagent silently never gets used.
+More in <a href="../RESOURCES.md">RESOURCES.md</a>.
+</p>
+
+<p class="ask-agent">
+Stuck writing the frontmatter, curious why the tools list matters, or want to talk through
+what "own context window" really means under the hood? Ask me — I'm your teacher for this
+track, and these tangents are often where the real understanding is.
+</p>
+
+<div class="nav">
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a> ·
+<a href="../RESOURCES.md">Resources</a> ·
+Lesson 2 of the multi-agent delivery pipeline track ·
+Next → Composing worktrees + subagents into one worker · Back to
+<a href="0001-git-worktree-fundamentals.html">Lesson 1</a>
+</div>
+
+<script src="../../../assets/quiz.js"></script>
+</body>
+</html>

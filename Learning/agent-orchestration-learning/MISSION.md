@@ -77,3 +77,5 @@ real projects — including a live job search.
   prompt→work loop. Practice vehicle: a fresh, separate repo (not this one). Baseline: new
   to both git worktrees and Claude Code subagents. Inspiration: Matt Pocock's YouTube
   channel / `mattpocock/skills`.
+- **2026-08-06** — Lesson 1 (git worktree fundamentals) complete. Practice repo created at
+  `/Users/ericmovchan/agent-pipeline-practice`. See learning record 0002.
