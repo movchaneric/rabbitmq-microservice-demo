@@ -29,13 +29,16 @@ implements it, not just wire up an npm package. The demo's five microservices
 2. **Auth — JWT bearer + RBAC** (Phase B). Layer real *user* authentication on top of *app*
    identification, from a dedicated `auth-service` (register/login, issues JWTs) the gateway
    trusts — then authorize by role (`customer` vs `admin`) so 403 becomes a real, exercised
-   code path, not just a glossary entry. *(Next — Lesson 3.)*
+   code path, not just a glossary entry. *(Done — Lesson 3, 2026-08-01.)*
 3. **Auth — OAuth2 grant types** (Phase C). Replace the shared-secret HS256 trust from
-   Phase B with the real OAuth2/OIDC model: authorization-code (user login via a browser),
-   client-credentials (service-to-service, no user), refresh tokens, and where AWS Cognito /
-   a Lambda authorizer fit. This is the "industrial standard" piece — Phase B simulates just
-   enough of an issuer to make RBAC concrete; Phase C is where the token *issuance* protocol
-   itself gets taught properly.
+   Phase B with the real OAuth2/OIDC model, using a real self-hosted **Keycloak** instance
+   as the authorization server (not a continued in-house simulation, not Auth0 — see
+   learning record 0003): client-credentials (service-to-service, no user) first — *(Next —
+   Lesson 4, scoped to the `dead-letters` route.)* — then authorization-code (user login via
+   a browser), refresh tokens, and where AWS Cognito / a Lambda authorizer fit. This is the
+   "industrial standard" piece — Phase B simulates just enough of an issuer to make RBAC
+   concrete; Phase C is where the token *issuance* protocol itself gets taught properly,
+   with a real external IdP the gateway doesn't control the signing key for.
 4. **Observability.** Structured access logs, correlation/request IDs propagated to
    backends, per-route latency + status.
 5. **Request validation.** Reject malformed requests at the edge.
@@ -77,3 +80,18 @@ implements it, not just wire up an npm package. The demo's five microservices
   the gateway. (2) JWT verification (authentication) and RBAC (authorization) are taught
   **together in Lesson 3**, since 401-vs-403 only becomes real once both exist to contrast.
   Real OAuth2 grant types pulled out into their own **Phase C**, added to the roadmap above.
+- **2026-08-01** — Lesson 3 (JWT bearer auth + RBAC) complete. New `services/auth-service`
+  issues JWTs via `/register` (public, always `customer`) and `/login`; gateway verifies via
+  `jwtAuthMiddleware` and enforces roles per route via `requireRole`. Hardened along the way:
+  `/register` no longer trusts a client-supplied `role` (was a self-service admin
+  escalation), duplicate-email and missing-field checks added, and a separate
+  secret-gated `/admin/provision` route added for creating admin accounts. Verified:
+  customer token on an admin-only route → 403; no/invalid token → 401; admin token on
+  `toggle-fail` → passes through.
+- **2026-08-01** — Phase C scoped (see learning record 0003): client-credentials grant
+  first (closest to Lesson 1's API-key/app-identity concept), backed by a real self-hosted
+  **Keycloak** instance rather than continuing to simulate an issuer. Lesson 4 targets the
+  `GET /api/v1/dead-letters` route specifically — it's already admin-only/operational and
+  genuinely machine-to-machine (a monitoring job, not a person), which sidesteps designing
+  multi-issuer `Authorization` header coexistence with Lesson 3's user JWTs for now. That
+  coexistence question is noted as a future thread, not solved in Lesson 4.

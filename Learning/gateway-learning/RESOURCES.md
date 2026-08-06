@@ -55,12 +55,34 @@ Trusted sources for the enterprise-gateway track. Prefer these over parametric k
   — re-read with JWT in hand: a Lambda authorizer that validates a bearer token and returns
   an IAM policy is the AWS shape of exactly the `jwtAuthMiddleware` you're about to write.
 
-## OAuth2 (Phase C — not yet, reference for later)
+## OAuth2 & Keycloak (Lesson 4 — client-credentials grant)
+- **[RFC 6749 §4.4 — Client Credentials Grant](https://www.rfc-editor.org/rfc/rfc6749#section-4.4)**
+  — the spec for today's grant type: no user, no redirect, just `client_id` +
+  `client_secret` traded directly for a token at the token endpoint.
+- **[Keycloak — Running Keycloak in a container](https://www.keycloak.org/server/containers)**
+  — `docker run quay.io/keycloak/keycloak start-dev`, and the
+  `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD` env vars used to log into
+  the admin console the first time.
+- **[Keycloak — Client credentials grant (server admin guide)](https://www.keycloak.org/docs/latest/server_admin/#_client_credentials_grant)**
+  — client credentials grant conceptually: a token representing the **client's own service
+  account**, not an external user.
+- **[Keycloak — OIDC available endpoints](https://www.keycloak.org/docs/latest/securing_apps/#_certificate_endpoint)**
+  — `GET /realms/{realm}/protocol/openid-connect/certs` (JWKS / public keys) and
+  `POST /realms/{realm}/protocol/openid-connect/token` (token endpoint) — the two URLs
+  this lesson's code actually calls.
+- **[jwks-rsa (auth0) docs](https://github.com/auth0/node-jwks-rsa)** — the library that
+  fetches and caches a JWKS and hands `jsonwebtoken` the right public key for a token's
+  `kid`. Key API: `client.getSigningKey(kid)` → `key.getPublicKey()`, then
+  `jwt.verify(token, publicKey, { algorithms: ["RS256"] })`.
+- **[AWS Cognito — User pool OAuth 2.0 grants](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-oauth-2.html)**
+  — read after the exercise: Cognito's client-credentials equivalent is an "app client"
+  with a client secret and the `client_credentials` OAuth flow enabled — same shape,
+  managed service instead of self-hosted Keycloak.
+
+## OAuth2 (later in Phase C — authorization-code, refresh tokens; not yet)
 - **[RFC 6749 — The OAuth 2.0 Authorization Framework](https://www.rfc-editor.org/rfc/rfc6749)**
-  and **[AWS Cognito — User pool OAuth 2.0 grants](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-oauth-2.html)**
-  will be the primary sources when Phase C starts. Not needed for Lesson 3 — Phase B
-  deliberately simulates just enough of an issuer (shared-secret HS256) to make RBAC
-  concrete without the full grant-type machinery yet.
+  (full spec, beyond §4.4) will be the primary source once authorization-code and refresh
+  tokens are scoped.
 
 ## Communities (wisdom — optional)
 - r/aws and the AWS re:Post forum — good for "is this how real gateways do X?" sanity checks.

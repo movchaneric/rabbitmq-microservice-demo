@@ -80,3 +80,52 @@ Once a term is here, lessons use it consistently.
   signature, decide *who*) then **authorize** (check the role/claims, decide *can they*).
   One middleware can do both, but they're conceptually two separate questions — which is
   exactly why 401 and 403 are two different status codes, not one.
+
+- **OAuth2** — a framework for one party getting limited access to a resource without
+  handling passwords itself. Defines **grant types** (ways to get a token): this track
+  starts with *client-credentials*; *authorization-code* and *refresh tokens* come later
+  in Phase C.
+
+- **Authorization server** — the party that authenticates the caller and issues tokens
+  (this track: **Keycloak**, self-hosted). Contrast with the **resource server** — the
+  API being protected (this track: the gateway) — which only ever *verifies* tokens, never
+  issues them. Same authn/authz-elsewhere shape as Lesson 3's `auth-service`, but now a
+  real, separately-run piece of infrastructure instead of code you wrote.
+
+- **Client-credentials grant** — the OAuth2 flow for **service-to-service** calls with no
+  human user involved: the calling app authenticates directly to the authorization server
+  with its own `client_id` + `client_secret`, and gets back an access token representing
+  *that app*, not a person. Conceptually the same job Lesson 1's static `x-api-key` did
+  (identify the calling app) — but the credential is now managed by a real authorization
+  server (rotatable, revocable, short-lived tokens) instead of a hardcoded string compared
+  with `===`.
+
+- **Confidential client / service account** — a Keycloak **client** (its term for a
+  registered application) configured with `publicClient=false` (it can hold a secret
+  safely — it's a backend, not a browser) and `serviceAccountsEnabled=true` (it gets its
+  own "user" identity to act as, needed for the client-credentials grant to have a subject
+  to issue a token about).
+
+- **Token endpoint** — the authorization server's URL for exchanging credentials for a
+  token: `POST /realms/{realm}/protocol/openid-connect/token` on Keycloak, body
+  `grant_type=client_credentials&client_id=...&client_secret=...`. This is the OAuth2
+  equivalent of `auth-service`'s `/login` — same job (trade a credential for a JWT),
+  standardized shape instead of a bespoke route.
+
+- **Asymmetric signing (RS256) vs shared secret (HS256)** — Lesson 3's `auth-service` and
+  gateway both knew one **shared secret** (HS256) because you controlled both sides. A
+  real external IdP can't share a secret with every API that trusts it — instead it signs
+  with a **private key** only it holds, and publishes the matching **public key** for
+  anyone to verify with (RS256). Only the IdP can *mint* valid tokens; anyone can *check*
+  one. This is the trust model Phase C actually needed Keycloak to demonstrate — it isn't
+  fakeable with an in-house issuer you also control.
+
+- **JWKS (JSON Web Key Set)** — the published set of an authorization server's current
+  public keys, as JSON, at a well-known URL (Keycloak:
+  `/realms/{realm}/protocol/openid-connect/certs`). A verifier fetches this instead of
+  hardcoding a key, so key rotation on the IdP's side doesn't require redeploying every
+  service that trusts it.
+
+- **`kid` (Key ID)** — a header field in a JWT naming *which* key in the JWKS signed it.
+  Needed because an authorization server may have multiple keys active at once (mid-
+  rotation); the verifier looks up the JWKS entry matching this `kid` rather than guessing.
