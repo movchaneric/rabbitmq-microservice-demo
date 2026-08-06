@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 3 — Worktree-Isolated Worker Agents</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+
+<h1>Lesson 3 — A worker with its own room and its own head</h1>
+<p class="subtitle">Composing Lessons 1 and 2: a subagent that writes code inside a worktree Claude Code stages for it.</p>
+
+<p>
+Lesson 1 gave you a room by hand (<code>git worktree add</code>). Lesson 2 gave you a head
+with its own context (a subagent). This lesson stops doing either by hand: add one line to
+a subagent's frontmatter, and Claude Code stages the worktree <em>for</em> it — creates it
+before the subagent touches a file, and actively blocks that subagent from writing anywhere
+outside it. This is the literal mechanic behind "worker agents in isolated git worktrees" —
+not a convention worker agents are supposed to follow, a thing Claude Code enforces whether
+they try to follow it or not.
+</p>
+
+<div class="win">
+By the end you'll have a subagent that makes a real file change inside a worktree it never
+had to set up itself, you'll have watched your main checkout stay untouched while that
+happened, and you'll have merged the result back by hand. That manual merge is exactly the
+step Lesson 6's risk-tiered gate will later decide whether to automate or block.
+</div>
+
+<h2>The one idea that trips everyone up</h2>
+
+<p>
+"Isolated" here isn't a suggestion in the subagent's system prompt — it's <strong>enforced
+by Claude Code itself</strong>, the same way a database transaction is enforced by the
+database, not by the application remembering to be careful. Once a subagent (or session) is
+running inside a worktree, Claude Code actively <strong>blocks</strong> three categories of
+tool call from reaching the main checkout: file edits (<code>Edit</code>/<code>Write</code>)
+targeting a main-checkout path, any command whose working directory resolves there, and any
+git command that redirects into it (<code>git -C</code>, <code>--git-dir</code>, a
+<code>cd</code> before running git). A worker agent physically cannot step outside its room,
+even if its prompt tried to make it.
+</p>
+
+<table>
+<tr><th>Make isolation...</th><th>How</th><th>Scope</th></tr>
+<tr><td>Permanent, for one named subagent</td><td><code>isolation: worktree</code> in its frontmatter</td><td>Every time that subagent runs, forever</td></tr>
+<tr><td>One-off, for the current session</td><td>Ask Claude to "use worktrees for your agents"</td><td>Just this session's delegations</td></tr>
+</table>
+
+<p class="citation">
+— Claude Code docs, <a href="https://code.claude.com/docs/en/worktrees#isolate-subagents-with-worktrees">Isolate subagents with worktrees</a>. Full enforcement details under
+<a href="https://code.claude.com/docs/en/worktrees#how-claude-code-enforces-isolation">How Claude Code enforces isolation</a>.
+</p>
+
+<div class="callout">
+<strong>Cleanup is conditional, and that's a feature.</strong> A subagent's worktree is
+removed automatically <em>only if it finishes with no changes</em>. If it made changes, the
+worktree stays on disk — Claude Code won't quietly discard work just because the subagent
+that produced it exited. A periodic sweep (governed by the <code>cleanupPeriodDays</code>
+setting) later removes worktrees that are old <em>and</em> have nothing uncommitted,
+nothing untracked, and nothing unpushed. Anything with live work in it is safe from the
+sweep too.
+</div>
+
+<h2>Check your grip before you build</h2>
+
+<div class="quiz-q" data-answer="isolation worktree in the subagent frontmatter">
+<p class="prompt">How do you make worktree isolation permanent for one named subagent, not just this session?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+Add <code>isolation: worktree</code> to that subagent's YAML frontmatter. Every time it
+runs, from any session, Claude Code stages a worktree for it first.
+</div>
+</div>
+
+<div class="quiz-q" data-answer="only when it finishes with zero changes made">
+<p class="prompt">When does Claude Code auto-remove a subagent's worktree right after it finishes?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+Only when the subagent finished having made no changes. If it changed anything, the
+worktree — and the work in it — stays on disk until you deal with it (or the periodic
+sweep does, once it's old and fully clean).
+</div>
+</div>
+
+<div class="quiz-q" data-answer="edits, command working directory, and git redirects">
+<p class="prompt">Name the three categories of tool call Claude Code actively blocks from reaching the main checkout.</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+File edits (<code>Edit</code>/<code>Write</code>/<code>NotebookEdit</code>) targeting a
+main-checkout path; a Bash/PowerShell command whose working directory resolves to the main
+checkout; and a git command redirected into the main checkout (<code>-C</code>,
+<code>--git-dir</code>, a <code>cd</code> first, etc).
+</div>
+</div>
+
+<h2 id="exercise">Your turn — a worker that writes for real</h2>
+
+<p>
+Back in <code>/Users/ericmovchan/agent-pipeline-practice</code>. This time the subagent
+writes something, so worktree isolation actually has something to protect.
+</p>
+
+<div class="exercise">
+<h3>Step 1 — a worker subagent, isolated by default</h3>
+<p>
+Create <span class="file">.claude/agents/scaffolder.md</span>: give it a
+<code>description</code> for a small, well-defined writing task (e.g. "adds a dated entry
+to CHANGELOG.md summarizing a described change" — keep the scope tiny and unambiguous, this
+is about the isolation mechanic, not the task itself), a <code>tools</code> list that
+includes <code>Write</code> or <code>Edit</code>, and — the new part —
+<code>isolation: worktree</code> in the frontmatter.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 2 — delegate to it, then check your main checkout <em>first</em></h3>
+<p>
+Trigger the subagent with a real, small task matching its description. Before you look at
+its report, run <code>git status</code> and <code>git worktree list</code> in your main
+checkout. Confirm: your working tree is still clean, and a new worktree now exists that you
+didn't create by hand.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 3 — inspect, then merge it back</h3>
+<p>
+<code>cd</code> into the worktree Claude Code created and look at what the subagent
+actually wrote (<code>git log</code>, <code>git diff</code> against the base branch). If
+it's what you expect, merge it into your main checkout the plain way — decide for yourself
+whether that's a fast-forward merge, a regular merge commit, or something else, and be able
+to say why. This manual "does it look right, then I merge it" step is exactly what Lesson 6
+will formalize into a gate instead of a judgment call.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 4 — clean up</h3>
+<p>
+Remove the worktree once you've merged (or discarded) its work — same
+<code>git worktree remove</code> muscle from Lesson 1, now on a worktree you didn't create
+yourself.
+</p>
+</div>
+
+<div class="win">
+<strong>Verify it yourself:</strong> at every point before Step 3's merge, your main
+checkout's <code>git status</code> should read clean — no trace of the subagent's work
+until you deliberately pull it in. That gap between "the work exists" and "the work is in
+your checkout" is the whole isolation guarantee, made visible.
+</div>
+
+<h2>Where this points next</h2>
+<p>
+You now have the two mechanical pieces the mission names explicitly: worker agents, in
+isolated git worktrees. What's still missing is everything <em>upstream</em> and
+<em>downstream</em> of one worker — who decides what work to hand out and in what order
+(Lesson 4's planning agent and wave planning), and who checks a worker's output before it's
+allowed to merge (Lesson 5's independent review). Lesson 3 was "can one worker be trusted
+with a room of its own"; Lessons 4–6 are "how do many of them get coordinated."
+</p>
+
+<h2>Read this (primary source)</h2>
+<p>
+Read <a href="https://code.claude.com/docs/en/worktrees"><strong>Run parallel sessions with
+worktrees</strong></a> in full this time, not just the subagent section — the enforcement
+mechanics, cleanup sweep, and base-branch behavior all matter once you're running several
+workers at once in Lesson 4. More in <a href="../RESOURCES.md">RESOURCES.md</a>.
+</p>
+
+<p class="ask-agent">
+Curious what <code>worktree.baseRef</code> is for, why a worktree needs its own dependency
+install, or want to talk through fast-forward vs. merge-commit for Step 3? Ask me — I'm
+your teacher for this track, and these tangents are often where the real understanding is.
+</p>
+
+<div class="nav">
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a> ·
+<a href="../RESOURCES.md">Resources</a> ·
+Lesson 3 of the multi-agent delivery pipeline track ·
+Next → A planning agent and wave planning · Back to
+<a href="0002-subagents-and-the-task-tool.html">Lesson 2</a>
+</div>
+
+<script src="../../../assets/quiz.js"></script>
+</body>
+</html>

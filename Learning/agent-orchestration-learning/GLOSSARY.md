@@ -60,3 +60,24 @@ consistently.
 - **Context window (per-agent)** — the working memory available to one agent/session. The
   reason to isolate subagents at all: a side task that would flood the main conversation
   with detail it won't need again instead lives and dies in its own context.
+
+- **`isolation: worktree` (subagent frontmatter)** — makes worktree isolation permanent for
+  one named subagent: Claude Code stages a fresh worktree for it before it runs, every
+  time. The one-off equivalent for a whole session is asking Claude to "use worktrees for
+  your agents." See [Isolate subagents with worktrees](https://code.claude.com/docs/en/worktrees#isolate-subagents-with-worktrees).
+
+- **Isolation enforcement** — Claude Code actively *blocks* (not just discourages) three
+  kinds of tool call from an isolated session/subagent reaching the main checkout: file
+  edits targeting a main-checkout path, commands whose working directory resolves there,
+  and git commands redirected into it. This is what makes "worker agents can't collide"
+  a guarantee rather than a convention.
+
+- **Base branch (worktree)** — which branch a new worktree starts from.
+  `worktree.baseRef: "fresh"` (default) branches from the repo's default branch on the
+  remote; `"head"` branches from the current local `HEAD`, carrying unpushed/in-progress
+  work — useful for a worker that needs to build on work not yet on `main`.
+
+- **Cleanup sweep** — the periodic process that removes worktrees Claude Code created for
+  subagents/background sessions once they're older than `cleanupPeriodDays` *and* fully
+  clean (no uncommitted changes, no untracked files, no unpushed commits). A worktree with
+  live work in it is never swept.

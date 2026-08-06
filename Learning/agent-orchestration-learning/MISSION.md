@@ -79,3 +79,5 @@ real projects — including a live job search.
   channel / `mattpocock/skills`.
 - **2026-08-06** — Lesson 1 (git worktree fundamentals) complete. Practice repo created at
   `/Users/ericmovchan/agent-pipeline-practice`. See learning record 0002.
+- **2026-08-06** — Lesson 2 (subagents + Task tool) complete. Lesson 3 (composing worktrees
+  + subagents into one isolated worker) written. See learning record 0003.
