@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 1 — Git Worktree Fundamentals</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+
+<h1>Lesson 1 — One repo, many rooms</h1>
+<p class="subtitle">Git worktrees: the physical isolation every worker agent in this track will stand on.</p>
+
+<p>
+Right now, when you work in a git repo, you have exactly one working directory and one
+branch checked out at a time. Want to work on two branches "at once"? You stash, switch,
+unstash — or you clone the whole repo again into a second folder and pay for a second full
+copy of history. Neither scales to "five agents, five branches, all running right now."
+<strong>Worktrees</strong> are git's actual answer to that problem, and they're the ground
+floor of everything else in this track: a worker agent can't safely touch its own branch in
+its own directory unless something set that directory up first.
+</p>
+
+<div class="win">
+By the end of this lesson you'll have created a linked worktree, made an independent commit
+in it, watched both worktrees share one `.git` history, and cleaned it up — by hand, no
+agent involved yet. That muscle is what Lesson 3 hands to a worker agent.
+</div>
+
+<h2>The one idea that trips everyone up</h2>
+
+<p>
+A worktree is <strong>not</strong> a clone. A clone duplicates the entire <code>.git</code>
+object store — every commit, every blob — onto disk a second time. A linked worktree shares
+the <em>same</em> <code>.git</code> object store with the original checkout; it only adds a
+new working directory plus a small bit of metadata recording which branch that directory
+has checked out. One repository's history, several rooms to stand in it.
+</p>
+
+<table>
+<tr><th>Approach</th><th>Working dirs</th><th>.git object store</th><th>Branches checked out at once</th></tr>
+<tr><td>Plain checkout</td><td>1</td><td>1 (shared, obviously)</td><td>1</td></tr>
+<tr><td><code>git clone</code> again</td><td>2 (separate repos)</td><td>2 — full duplicate</td><td>2, but they don't know about each other</td></tr>
+<tr><td><code>git worktree add</code></td><td>2 (linked)</td><td><strong>1 — shared</strong></td><td>2, same repo, same history</td></tr>
+</table>
+
+<p class="citation">
+— Git's own docs: "a repository can have one main working tree and any number of
+additional linked working trees." See the
+<a href="https://git-scm.com/docs/git-worktree">official <code>git-worktree</code> reference</a>.
+</p>
+
+<div class="callout">
+<strong>Why this matters for agents specifically.</strong> git will refuse to have the same
+branch checked out in two worktrees at once — that's the whole safety property. Give each
+worker agent its own branch and its own worktree directory, and two agents physically
+cannot stomp on each other's uncommitted changes, even if they're both editing the same
+file in the same repo. That guarantee is what makes "isolation" in this track a fact about
+the filesystem, not a promise an agent has to keep.
+</div>
+
+<h2>Check your grip before you build</h2>
+
+<div class="quiz-q" data-answer="a linked working directory, not a duplicated repo">
+<p class="prompt">What's the one-sentence difference between a worktree and a clone?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+A clone duplicates the entire <code>.git</code> object store onto disk again; a worktree is
+a second working directory that <em>shares</em> the same <code>.git</code> object store as
+the original checkout — one history, multiple rooms.
+</div>
+</div>
+
+<div class="quiz-q" data-answer="git refuses, same branch cannot be checked out twice">
+<p class="prompt">You try to check the same branch out in two worktrees at once. What happens?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+Git refuses. A branch can only be checked out in one worktree at a time — this is exactly
+the safety property that lets two agents work in parallel without physically colliding.
+Each worker needs its <em>own</em> branch.
+</div>
+</div>
+
+<h2 id="exercise">Your turn — stand up a practice repo and a worktree</h2>
+
+<p>
+This is also where the <strong>practice repo</strong> for the rest of this track gets born.
+Pick a name and a location outside <code>rabbitmq-microservice-demo</code> — a sibling
+directory works well, e.g. <code>~/agent-pipeline-practice</code>. You create it; I'm not
+touching it for you.
+</p>
+
+<div class="exercise">
+<h3>Step 1 — a tiny repo to practice on</h3>
+<p>
+Initialize a fresh git repo. Add one trivial file (a <code>README.md</code> is fine) and
+commit it on <code>main</code>. This is the repo you'll keep reusing for the rest of the
+track, so a real name beats <code>test123</code>.
+</p>
+<pre><code># in the parent directory where you want it
+mkdir agent-pipeline-practice && cd agent-pipeline-practice
+git init
+# create README.md, then:
+git add README.md
+git commit -m "init"</code></pre>
+</div>
+
+<div class="exercise">
+<h3>Step 2 — add a linked worktree</h3>
+<p>
+Create a new branch <em>and</em> a new worktree for it in one command, in a directory next
+to (not inside) your main checkout. Read <code>git worktree add --help</code> for the exact
+flag to create the branch in the same step — don't just copy a command, know what each
+piece does before you run it.
+</p>
+<pre><code># from inside agent-pipeline-practice/
+git worktree add ../agent-pipeline-practice-feature -b feature/hello</code></pre>
+<p class="citation">
+Notice the new directory is a <em>sibling</em> of your main checkout, not nested inside it
+— nesting a worktree inside the repo it belongs to is a common early mistake and confuses
+git's own status output.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 3 — prove the two worktrees share history</h3>
+<p>
+<code>cd</code> into the new worktree, make a small edit, and commit it there — on
+<code>feature/hello</code>, not <code>main</code>. Then go back to your original directory
+and run <code>git log --oneline --all --graph</code>. You should see <em>both</em> commits,
+on both branches, from either worktree — because there's only one <code>.git</code> behind
+them. Also run <code>git worktree list</code> from either directory and read what it shows
+you.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 4 — clean up</h3>
+<p>
+Remove the linked worktree (not the branch — decide separately whether you want to keep
+<code>feature/hello</code> or delete it too). Figure out the command yourself from
+<code>git worktree --help</code> before you run it.
+</p>
+</div>
+
+<div class="win">
+<strong>Verify it yourself:</strong> after Step 4, <code>git worktree list</code> should
+show only your main checkout again, but <code>git log --all</code> should still show the
+commit you made in the feature worktree (unless you also deleted the branch) — proof the
+history lived in the shared object store the whole time, not in the worktree directory you
+just removed.
+</div>
+
+<h2>Where this points next</h2>
+<p>
+You now know how to give one branch its own room by hand. Lesson 2 sets that aside for a
+moment and covers the other half: delegating a bounded task to a Claude Code
+<strong>subagent</strong> and watching what "its own context" actually buys you. Lesson 3
+puts the two together — a subagent that does its work inside a worktree you (or a planning
+agent) pre-staged for it, which is the actual mechanic behind "worker agents in isolated git
+worktrees."
+</p>
+
+<h2>Read this (primary source)</h2>
+<p>
+Read the official <a href="https://git-scm.com/docs/git-worktree"><strong>git-worktree
+documentation</strong></a> — at minimum the description and the <code>add</code>/
+<code>list</code>/<code>remove</code> sections. It's the ground truth for every flag you
+used above. For how Claude Code's own worktree support layers on top of this, see
+<a href="https://code.claude.com/docs/en/worktrees">Run parallel sessions with
+worktrees</a>. More in <a href="../RESOURCES.md">RESOURCES.md</a>.
+</p>
+
+<p class="ask-agent">
+Stuck on a command, curious what <code>git worktree lock</code> or <code>prune</code> are
+for, or want to talk through why nested worktrees confuse git? Ask me — I'm your teacher
+for this track, and these tangents are often where the real understanding is.
+</p>
+
+<div class="nav">
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a> ·
+<a href="../RESOURCES.md">Resources</a> ·
+Lesson 1 of the multi-agent delivery pipeline track · Next → Claude Code subagents and the Task tool
+</div>
+
+<script src="../../../assets/quiz.js"></script>
+</body>
+</html>
