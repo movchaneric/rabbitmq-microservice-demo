@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 4 — Planning Agent and Wave Planning</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+
+<h1>Lesson 4 — Someone has to decide who works on what, and when</h1>
+<p class="subtitle">The planning agent: decomposing a body of work into waves of independent, parallel-safe slices.</p>
+
+<p>
+Lessons 1–3 built one worker: a subagent, isolated in its own worktree, that can be trusted
+with a piece of work. That's necessary but not sufficient — nothing yet decides <em>what</em>
+piece of work each worker gets, or whether two workers running <em>right now</em> are safe
+to run at the same time. That's the <strong>planning agent's</strong> job: read a body of
+work, break it into independent slices, and group those slices into <strong>waves</strong> —
+batches where everything in a wave can run in parallel, and each wave only starts once the
+wave before it is done.
+</p>
+
+<div class="win">
+By the end you'll have manually planned a real wave (2–3 independent slices), dispatched
+all of them <em>in parallel</em> in one turn using what you built in Lesson 3, and merged
+the results back — while also proving to yourself the one thing worktree isolation quietly
+does <strong>not</strong> protect you from.
+</div>
+
+<h2>The one idea that trips everyone up</h2>
+
+<p>
+Worktree isolation stops two workers from clobbering each other's <strong>uncommitted,
+in-progress</strong> work — that part is enforced by Claude Code itself, as you saw in
+Lesson 3. It does <strong>nothing</strong> to stop a merge conflict once both workers
+finish and you try to bring their <em>separate, committed</em> branches back into one
+checkout. If worker A and worker B both edited the same file, you get a completely ordinary
+git merge conflict — worktrees never touched that problem, because by the time it happens,
+isolation has already done its job and stepped aside.
+</p>
+
+<div class="callout">
+<strong>So what makes two slices safe to put in the same wave?</strong> Two conditions,
+both necessary: (1) <strong>no dependency</strong> — neither slice needs the other's output
+to be correct or even to make sense, and (2) <strong>no file/module overlap</strong> —
+ideally they don't touch the same files at all. Condition 1 is about correctness. Condition
+2 is about avoiding busywork merge conflicts on the way back in. A planning agent that only
+checks dependency and ignores overlap will still "work," but every wave becomes a conflict-
+resolution chore.
+</p>
+</div>
+
+<table>
+<tr><th>Question</th><th>What it protects</th><th>Who/what enforces it</th></tr>
+<tr><td>Are A and B dependent?</td><td>Correctness — B needs A's result to make sense</td><td>The planning agent's dependency analysis (this lesson)</td></tr>
+<tr><td>Do A and B touch the same files?</td><td>A clean merge, not a conflict-resolution chore</td><td>The planning agent's slicing choice (this lesson)</td></tr>
+<tr><td>Can A and B edit at the same instant without corrupting each other's draft?</td><td>Live, in-progress safety</td><td>Worktree isolation, enforced by Claude Code (Lesson 3)</td></tr>
+</table>
+
+<h2>Check your grip before you build</h2>
+
+<div class="quiz-q" data-answer="live uncommitted collisions, not merge conflicts on committed branches">
+<p class="prompt">What does worktree isolation protect against, and what does it explicitly NOT protect against?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+It protects against two workers colliding on the same <em>live, uncommitted</em> files at
+the same time. It does not protect against an ordinary merge conflict once both workers'
+finished, committed branches get merged back — that's a plain git problem, unrelated to
+isolation.
+</div>
+</div>
+
+<div class="quiz-q" data-answer="no dependency between them and no overlapping files touched">
+<p class="prompt">Name both conditions that make two slices safe to run in the same wave.</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+No dependency (neither needs the other's output), and no file/module overlap (so merging
+both back doesn't produce a conflict even though they ran in parallel).
+</div>
+</div>
+
+<div class="quiz-q" data-answer="call several agent or task invocations in one turn">
+<p class="prompt">Mechanically, in Claude Code, how do you actually run "a wave" of several workers at once?</p>
+<input type="text"><button onclick="checkQuiz(this)">Reveal</button>
+<div class="reveal">
+Call multiple Agent/Task invocations in the <em>same</em> turn/message. Calling them one at
+a time, waiting for each before starting the next, is sequential — not a wave, no matter
+how independent the work is.
+</div>
+</div>
+
+<h2 id="exercise">Your turn — plan and run a real wave</h2>
+
+<p>
+Back in <code>/Users/ericmovchan/agent-pipeline-practice</code>. This time <em>you</em> are
+the planning agent, doing the decomposition by hand before handing anything to Claude Code.
+</p>
+
+<div class="exercise">
+<h3>Step 1 — pick 2–3 genuinely independent slices</h3>
+<p>
+Choose two or three small pieces of work that satisfy both conditions above: no dependency,
+no file overlap. Something like "add a <code>CONTRIBUTING.md</code>", "add a
+<code>.gitignore</code>", and "add a short <code>LICENSE</code>" works well — three
+different files, none needs the others to exist first. Write down, in your own words, why
+each pair is safe to run together. If you can't justify it, you haven't planned the wave —
+you've guessed.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 2 — dispatch the wave in parallel</h3>
+<p>
+Using your Lesson-3 worker subagent (or a variant of it — reuse <code>isolation:
+worktree</code>), delegate <strong>all</strong> the slices in <em>one</em> turn — one
+message, multiple worker invocations, no waiting between them. Watch for confirmation that
+they actually ran concurrently rather than one after another.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 3 — merge the wave back, one slice at a time</h3>
+<p>
+Merge each worker's branch into your main checkout in turn. Because you planned for no file
+overlap, this should go cleanly — no conflicts. If you <em>do</em> hit one, that's a real
+signal your slicing missed something; don't just resolve it and move on without figuring
+out which condition (dependency or overlap) you actually violated.
+</p>
+</div>
+
+<div class="exercise">
+<h3>Step 4 — break it on purpose</h3>
+<p>
+Now do it wrong, deliberately: plan a "wave" where two slices touch the <em>same</em> file
+(e.g. both told to add a line to the same <code>README.md</code>, in different places).
+Dispatch them in parallel the same way, then try to merge both back. You should hit a real
+merge conflict. This is the cheapest, safest place to feel that failure mode — better here
+than inside <code>orchestrate-prd</code> later.
+</p>
+</div>
+
+<div class="win">
+<strong>Verify it yourself:</strong> Step 3's wave merges with zero conflicts; Step 4's
+doesn't. If both went cleanly, your Step 4 slices weren't actually overlapping — go make
+them collide for real. The failure is the point of the exercise, not something to avoid.
+</div>
+
+<h2>Where this points next</h2>
+<p>
+You can now plan and run one wave. What's still missing: nothing has independently checked
+whether a worker's output is actually <em>correct</em> before it merges — you did that
+judgment call yourself in Steps 3–4. Lesson 5 hands that job to a reviewer agent with no
+stake in the implementation, and Lesson 6 turns "looks right, merge it" into an explicit,
+risk-tiered gate instead of a vibe check.
+</p>
+
+<h2>Read this (primary source)</h2>
+<p>
+Read the "How it works" section of Anthropic's
+<a href="https://www.anthropic.com/engineering/multi-agent-research-system"><strong>How we
+built our multi-agent research system</strong></a> — specifically how the lead agent plans
+before delegating, and the lesson that "prompt engineering was our primary lever" for
+preventing coordination failures like duplicated work. That duplicated-work failure mode is
+exactly what Step 4 just made you feel by hand. More in
+<a href="../RESOURCES.md">RESOURCES.md</a>.
+</p>
+
+<p class="ask-agent">
+Curious how a planning agent would detect file overlap automatically instead of you
+reasoning it out by hand, or want to talk through fast-forward vs. rebase for Step 3's
+merges? Ask me — I'm your teacher for this track, and these tangents are often where the
+real understanding is.
+</p>
+
+<div class="nav">
+<a href="../GLOSSARY.md">Glossary</a> ·
+<a href="../MISSION.md">Mission</a> ·
+<a href="../RESOURCES.md">Resources</a> ·
+Lesson 4 of the multi-agent delivery pipeline track ·
+Next → Independent review before merge · Back to
+<a href="0003-worktree-isolated-worker-agents.html">Lesson 3</a>
+</div>
+
+<script src="../../../assets/quiz.js"></script>
+</body>
+</html>

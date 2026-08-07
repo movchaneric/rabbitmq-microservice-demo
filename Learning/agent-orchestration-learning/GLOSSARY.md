@@ -81,3 +81,14 @@ consistently.
   subagents/background sessions once they're older than `cleanupPeriodDays` *and* fully
   clean (no uncommitted changes, no untracked files, no unpushed commits). A worktree with
   live work in it is never swept.
+
+- **Wave** — a batch of independent slices dispatched to workers in parallel (one turn,
+  multiple Agent/Task invocations), where everything in the batch is safe to run at the
+  same time. The next wave only starts once the current one's dependencies are satisfied.
+
+- **Live-collision safety vs. merge-conflict safety** — two different guarantees, easy to
+  conflate. Worktree isolation gives the first (workers can't corrupt each other's
+  in-progress, uncommitted files). It gives nothing toward the second — two workers'
+  finished, committed branches can still produce an ordinary git merge conflict if they
+  touched the same files. Wave planning (no dependency + no file overlap) is what actually
+  protects the second.

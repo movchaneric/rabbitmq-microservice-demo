@@ -81,3 +81,5 @@ real projects — including a live job search.
   `/Users/ericmovchan/agent-pipeline-practice`. See learning record 0002.
 - **2026-08-06** — Lesson 2 (subagents + Task tool) complete. Lesson 3 (composing worktrees
   + subagents into one isolated worker) written. See learning record 0003.
+- **2026-08-07** — Lesson 3 (worktree-isolated worker agents) complete. Lesson 4 (planning
+  agent + wave planning) written. See learning record 0004.
